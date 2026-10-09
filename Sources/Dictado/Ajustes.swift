@@ -16,6 +16,9 @@ struct Ajustes {
     func guardar(estilo: Estilo) { d.set(estilo.rawValue, forKey: "estilo") }
     var isla: Bool { d.object(forKey: "isla") as? Bool ?? true }
     func guardar(isla: Bool) { d.set(isla, forKey: "isla") }
+    /// Abrir Dictado al iniciar sesión (sí por defecto; se apaga desde el menú).
+    var abrirAlIniciar: Bool { d.object(forKey: "abrirAlIniciar") as? Bool ?? true }
+    func guardar(abrirAlIniciar: Bool) { d.set(abrirAlIniciar, forKey: "abrirAlIniciar") }
     /// Volumen y brillo en la isla en vez del cuadro de macOS.
     var niveles: Bool { d.object(forKey: "niveles") as? Bool ?? true }
     func guardar(niveles: Bool) { d.set(niveles, forKey: "niveles") }

@@ -186,8 +186,14 @@ final class Salud {
         panel.makeKeyAndOrderFront(nil)
         medir(alertar: false)
         relojPanel?.invalidate()
-        relojPanel = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.medir(alertar: false) }
+        relojPanel = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] t in
+            MainActor.assumeIsolated {
+                guard let self, self.abierto else {  // el panel se ocultó por otro camino: deja de medir
+                    t.invalidate()
+                    return
+                }
+                self.medir(alertar: false)
+            }
         }
         if estado.limpiables.isEmpty && !estado.analizando { analizar() }
         if monitor == nil {
@@ -414,7 +420,7 @@ final class Medidor: @unchecked Sendable {
         m.cpu = procesador()
         m.gpu = Self.graficos()
         (m.memoriaUsada, m.swap, m.presion) = Self.memoria()
-        (m.discoLibre, m.discoTotal) = Self.disco()
+        (m.discoLibre, m.discoTotal) = disco()
         m.procesos = procesos()
         return m
     }
@@ -484,9 +490,16 @@ final class Medidor: @unchecked Sendable {
     }
 
     /// Espacio que macOS de verdad puede usar (incluye lo que puede liberar solo, como cachés de iCloud).
-    private static func disco() -> (Double, Double) {
+    /// Esta consulta hace que macOS calcule lo que puede liberar solo (cachés purgables): con el disco casi
+    /// lleno le cuesta trabajo, así que se repite como máximo una vez por minuto.
+    private var discoPrevio: (libre: Double, total: Double, cuando: Date)?
+
+    private func disco() -> (Double, Double) {
+        if let p = discoPrevio, Date().timeIntervalSince(p.cuando) < 60 { return (p.libre, p.total) }
         let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
-        return (Double(v?.volumeAvailableCapacityForImportantUsage ?? 0), Double(v?.volumeTotalCapacity ?? 1))
+        let medida = (Double(v?.volumeAvailableCapacityForImportantUsage ?? 0), Double(v?.volumeTotalCapacity ?? 1))
+        discoPrevio = (medida.0, medida.1, Date())
+        return medida
     }
 
     /// Procesos que consumen algo, con su app dueña. El procesador sale de /bin/ps (del sistema, puede ver todos

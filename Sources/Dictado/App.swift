@@ -61,13 +61,51 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.isla?.mostrar(.salud(titulo: titulo, detalle: detalle, grave: gravedad == .mal), segundos: 8)
         }
         if ajustes.isla { crearIsla() }
-        diagnostico = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+        // Cada pasada pregunta a macOS por los permisos: cada 20 s basta (los cambios importantes llaman a estado()).
+        diagnostico = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.estado(self?.textoEstado ?? "") }
         }
         construirMenu()
         registrarAtajos()
         registrarPortapapeles()
+        asegurarInicio()
         Task { await preparar() }
+    }
+
+    /// Dictado se abre solo al iniciar sesión, salvo que lo apagues en el menú. Si macOS pide aprobarlo
+    /// (Ajustes → General → Ítems de inicio), el menú lo avisa y lleva directo ahí.
+    private func asegurarInicio() {
+        let servicio = SMAppService.mainApp
+        if ajustes.abrirAlIniciar && servicio.status != .enabled && servicio.status != .requiresApproval {
+            do {
+                try servicio.register()
+            } catch {
+                log.error("inicio de sesión: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+        actualizarItemInicio()
+    }
+
+    private func actualizarItemInicio() {
+        switch SMAppService.mainApp.status {
+        case .enabled:
+            itemInicio.title = "Abrir al iniciar sesión"
+            itemInicio.state = .on
+        case .requiresApproval:
+            itemInicio.title = "⚠︎ Aprueba Dictado en Ítems de inicio…"
+            itemInicio.state = .off
+        default:
+            itemInicio.title = "Abrir al iniciar sesión"
+            itemInicio.state = .off
+        }
+    }
+
+    private var textoInicio: String {
+        switch SMAppService.mainApp.status {
+        case .enabled: return "sí"
+        case .requiresApproval: return "falta aprobar"
+        default: return "no"
+        }
     }
 
     // MARK: - Preparación
@@ -277,6 +315,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             "isla: " + (isla?.activa == true ? "sí" : "no"),
             "calendario: " + (isla?.agenda.permitido == true ? "sí" : "no"),
             "volumen/brillo: " + (isla?.interceptaNiveles == true ? "sí" : "no"),
+            "abre al iniciar: " + textoInicio,
         ].joined(separator: " · ")
         let linea = "\(texto) · portapapeles: \(atajo) · captura: \(captura) · \(permisos)"
         guard linea != ultimoEstado else { return }
@@ -351,7 +390,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(itemEstilo)
         self.menuEstilos = estilos
         itemInicio.target = self
-        itemInicio.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        actualizarItemInicio()
         menu.addItem(itemInicio)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Salir de Dictado", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -362,7 +401,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     func menuWillOpen(_ menu: NSMenu) {
         menuEstilos?.items.forEach { $0.state = ($0.representedObject as? String) == hud.estado.estilo.rawValue ? .on : .off }
         itemPermiso.isHidden = AXIsProcessTrusted()
-        itemInicio.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        actualizarItemInicio()
     }
 
     private func accion(_ titulo: String, _ selector: Selector) -> NSMenuItem {
@@ -395,16 +434,24 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func abrirAccesibilidad() { abrirAjustes("Privacy_Accessibility") }
 
     @objc private func alternarInicio() {
+        let servicio = SMAppService.mainApp
+        if servicio.status == .requiresApproval {
+            SMAppService.openSystemSettingsLoginItems()
+            return
+        }
         do {
-            if SMAppService.mainApp.status == .enabled {
-                try SMAppService.mainApp.unregister()
+            if servicio.status == .enabled {
+                try servicio.unregister()
+                ajustes.guardar(abrirAlIniciar: false)
             } else {
-                try SMAppService.mainApp.register()
+                try servicio.register()
+                ajustes.guardar(abrirAlIniciar: true)
             }
         } catch {
             hud.aviso(error.localizedDescription, icono: "exclamationmark.triangle", segundos: 3)
         }
-        itemInicio.state = SMAppService.mainApp.status == .enabled ? .on : .off
+        actualizarItemInicio()
+        estado(textoEstado)
     }
 
     private func abrirAjustes(_ panel: String) {
