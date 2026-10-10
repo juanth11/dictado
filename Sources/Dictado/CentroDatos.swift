@@ -74,6 +74,12 @@ struct EstadoCentro {
 
     struct Modulo: Decodable { var nombre: String; var valor: String; var abrir: String? }
     struct Local: Decodable { var cerebro: String; var inbox: Int; var inboxHermes: Int? }
+    /// Una captura del inbox con el destino que propone Claude (archivar, mover, tarea o destilar).
+    struct Propuesta: Decodable, Identifiable {
+        var id: String; var titulo: String; var tipo: String; var fuente: String; var fecha: String?; var extracto: String
+        var accion: String; var destino: String?; var razon: String; var origen: String?
+    }
+    struct Inbox: Decodable { var items: [Propuesta]; var destinos: [String] }
 
     var brief: Brief?
     var metas: Metas?
@@ -83,6 +89,7 @@ struct EstadoCentro {
     var salud: Salud?
     var modulos: [Modulo] = []
     var local: Local?
+    var inbox: Inbox?
     var vps = false
 
     /// Decodifica el objeto completo; cada parte por separado, para que una mala no tumbe a las demás.
@@ -104,6 +111,7 @@ struct EstadoCentro {
         e.salud = parte("salud.json")
         e.modulos = parte("modulos.json") ?? []
         e.local = parte("local")
+        e.inbox = parte("inbox.json")
         e.vps = raiz["vps"] as? Bool ?? (e.brief != nil)
         return e
     }
@@ -111,7 +119,8 @@ struct EstadoCentro {
     /// Lee una carpeta con los archivos sueltos del contrato (para renderizar maquetas con datos de prueba).
     static func deCarpeta(_ carpeta: URL) -> EstadoCentro? {
         var raiz: [String: Any] = [:]
-        for nombre in ["brief.json", "metas.json", "noticias.json", "orquesta.json", "salud.json", "finanzas.json", "modulos.json"] {
+        for nombre in ["brief.json", "metas.json", "noticias.json", "orquesta.json", "salud.json", "finanzas.json", "modulos.json",
+                       "inbox.json"] {
             if let datos = try? Data(contentsOf: carpeta.appendingPathComponent(nombre)),
                let valor = try? JSONSerialization.jsonObject(with: datos) { raiz[nombre] = valor }
         }
@@ -138,6 +147,9 @@ final class CentroStore {
     var cargando = false
     var error: String?
     var leido: Date?
+    /// Capturas del inbox que se están moviendo ahora y las que fallaron (con su motivo).
+    var aplicando: Set<String> = []
+    var fallos: [String: String] = [:]
 
     @ObservationIgnored private var datosCache: Data?
 
@@ -149,6 +161,40 @@ final class CentroStore {
     }
 
     var configurado: Bool { Self.comando != nil }
+
+    /// El script que ejecuta lo que apruebas en la ventana (`defaults app.dictado centro → acciones`). Se corre sin
+    /// shell: los argumentos llegan tal cual, sin interpretar. Sin él, la ventana solo muestra.
+    static var acciones: String? {
+        let a = UserDefaults.dictado.dictionary(forKey: "centro")?["acciones"] as? String
+        return (a?.isEmpty ?? true) ? nil : (a! as NSString).expandingTildeInPath
+    }
+
+    var puedeActuar: Bool { Self.acciones != nil }
+
+    /// Ejecuta UNA decisión aprobada en la ventana (regla 3: nada se mueve sin tu sí). El script valida y responde
+    /// {"ok": true} o {"ok": false, "error": "…"}; si sale bien, la captura sale de la lista.
+    func aplicarInbox(_ id: String, accion: String, destino: String?) {
+        guard let script = Self.acciones, !aplicando.contains(id) else { return }
+        aplicando.insert(id)
+        fallos[id] = nil
+        let argumentos = ["inbox", id, accion] + (destino.map { [$0] } ?? [])
+        Task.detached(priority: .userInitiated) {
+            let r = Self.correr(URL(fileURLWithPath: script), argumentos, limite: 90)
+            let json = (try? JSONSerialization.jsonObject(with: r.datos)) as? [String: Any]
+            let ok = json?["ok"] as? Bool == true
+            let mensaje = json?["error"] as? String ?? r.error ?? "No se pudo aplicar."
+            await MainActor.run { [weak self] in
+                guard let self else { return }
+                self.aplicando.remove(id)
+                if ok {
+                    self.estado?.inbox?.items.removeAll { $0.id == id }
+                    if self.aplicando.isEmpty { self.actualizar() }
+                } else {
+                    self.fallos[id] = mensaje
+                }
+            }
+        }
+    }
 
     init(cargarCache: Bool = true) {
         guard cargarCache, let datos = try? Data(contentsOf: Self.cache), let e = EstadoCentro.decodificar(datos) else { return }
@@ -192,25 +238,54 @@ final class CentroStore {
         e.finanzas = local.finanzas ?? vps.finanzas
         e.modulos = local.modulos.isEmpty ? vps.modulos : local.modulos
         e.local = local.local ?? vps.local
+        e.inbox = local.inbox ?? vps.inbox
         e.vps = false
         return e
     }
 
-    /// Ejecuta el comando (máximo 30 s) y devuelve lo que imprimió.
+    /// Ejecuta el comando de estado (máximo 30 s) y devuelve lo que imprimió.
     nonisolated static func ejecutar(_ comando: String) -> (Data?, String?) {
+        let r = correr(URL(fileURLWithPath: "/bin/zsh"), ["-c", comando], limite: 30)
+        if let e = r.error { return (nil, "El comando del centro \(e).") }
+        return (r.datos.isEmpty ? nil : r.datos, r.datos.isEmpty ? "El comando del centro no imprimió nada." : nil)
+    }
+
+    private final class Caja: @unchecked Sendable {
+        let candado = NSLock()
+        var datos = Data()
+    }
+
+    /// Corre un programa con un límite de tiempo REAL. Lee la salida a medida que llega y vuelve cuando el programa
+    /// termina o se vence el plazo, aunque algún proceso hijo siga con la tubería abierta (con readDataToEndOfFile,
+    /// un nieto colgado dejaba la ventana en "Actualizando…" para siempre).
+    nonisolated static func correr(_ url: URL, _ argumentos: [String], limite: TimeInterval) -> (datos: Data, error: String?) {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        p.arguments = ["-c", comando]
+        p.executableURL = url
+        p.arguments = argumentos
         let tubo = Pipe()
         p.standardOutput = tubo
         p.standardError = FileHandle.nullDevice
-        do { try p.run() } catch { return (nil, "No se pudo ejecutar el comando del centro.") }
-        let limite = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: limite)
-        let datos = tubo.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        limite.cancel()
-        if p.terminationReason == .uncaughtSignal { return (nil, "El comando del centro no respondió en 30 s.") }
-        return (datos.isEmpty ? nil : datos, datos.isEmpty ? "El comando del centro no imprimió nada." : nil)
+        let caja = Caja()
+        tubo.fileHandleForReading.readabilityHandler = { h in
+            let d = h.availableData
+            if d.isEmpty { h.readabilityHandler = nil; return }
+            caja.candado.lock()
+            caja.datos.append(d)
+            caja.candado.unlock()
+        }
+        let fin = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in fin.signal() }
+        do { try p.run() } catch {
+            tubo.fileHandleForReading.readabilityHandler = nil
+            return (Data(), "no se pudo ejecutar")
+        }
+        let vencido = fin.wait(timeout: .now() + limite) == .timedOut
+        if vencido { p.terminate() }
+        Thread.sleep(forTimeInterval: 0.15)   // lo último que quedó en la tubería
+        tubo.fileHandleForReading.readabilityHandler = nil
+        caja.candado.lock()
+        let datos = caja.datos
+        caja.candado.unlock()
+        return (datos, vencido ? "no respondió en \(Int(limite)) s" : nil)
     }
 }

@@ -5,6 +5,7 @@ Es una ventana de Dictado para ver tu día y a tus agentes. Tiene tres secciones
 - **Hoy:** el brief del día, con el foco, tres prioridades atadas a tus metas, cosas buenas de saber, un resumen de finanzas y noticias que te importan.
 - **Metas:** la semana, el mes y el trimestre, con el tiempo que va corrido frente al avance de cada meta.
 - **Orquesta:** lo que pide tu sí, lo que está trabajando, lo programado, lo hecho hoy y la semana de tus agentes. Junta tus sesiones de Claude Code en vivo con lo que te reporte tu propio servidor.
+- **Inbox:** tus capturas con el destino que propone tu asistente (archivar, mover a una carpeta, volver tarea o destilar). Apruebas con un clic, una por una o todas las de archivo a la vez.
 
 ## Qué hace y qué no
 
@@ -12,6 +13,7 @@ Es una ventana de Dictado para ver tu día y a tus agentes. Tiene tres secciones
 - **Cerrada, no corre nada.** Lee al abrirse y cada 5 minutos mientras está abierta. Al cerrarla se libera la ventana.
 - **Sin conexión, muestra lo último.** Guarda una caché en `~/Library/Caches/app.dictado/centro.json` y muestra lo último que leyó.
 - **Lo que se puede abrir:** el tablero de finanzas, el archivo de metas, una noticia (solo enlaces http o https) y una sesión de Claude Code.
+- **Lo único que cambia algo es el inbox,** y solo cuando apruebas. Dictado corre tu script de acciones **sin shell**: los argumentos van tal cual y nada se interpreta ni se inyecta. El script valida y responde `{"ok": true}` o `{"ok": false, "error": "…"}`.
 - **Lo que todavía no hace:** aprobar y delegar a los agentes.
 
 ## Configuración
@@ -20,7 +22,14 @@ Es una ventana de Dictado para ver tu día y a tus agentes. Tiene tres secciones
 defaults write app.dictado centro -dict comando "'/ruta/a/estado.sh'"
 ```
 
-Las comillas simples permiten espacios en la ruta: el comando corre con `zsh -c`. Debe imprimir **un** objeto JSON, en máximo 30 segundos. Ninguna parte es obligatoria: la que falte, se oculta.
+Las comillas simples permiten espacios en la ruta: el comando corre con `zsh -c`. Para aprobar desde el Inbox, agrega el script de acciones (se ejecuta directo, sin shell; la ruta va tal cual):
+
+```bash
+defaults write app.dictado centro -dict-add acciones "/ruta/a/accion.sh"
+# lo llama así:  accion.sh inbox <ruta de la captura> archivar|mover|tarea [destino o texto de la tarea]
+```
+
+El estado puede traer `"inbox.json": { "items": [{ "id", "titulo", "tipo", "fuente", "fecha", "extracto", "accion", "destino", "razon" }], "destinos": ["Carpeta/"] }`. Debe imprimir **un** objeto JSON, en máximo 30 segundos. Ninguna parte es obligatoria: la que falte, se oculta.
 
 ```json
 {
@@ -49,7 +58,7 @@ Las rutas relativas (`enlace`, `abrir`, `archivo`) se abren dentro de `local.cer
 
 ## Atajos
 
-Con la ventana al frente: **⌘1** Hoy · **⌘2** Metas · **⌘3** Orquesta · **⌘R** actualizar · **⌘W** cerrar.
+Con la ventana al frente: **⌘1** Hoy · **⌘2** Metas · **⌘3** Orquesta · **⌘4** Inbox · **⌘R** actualizar · **⌘W** cerrar.
 
 ## Probar sin abrir la app
 

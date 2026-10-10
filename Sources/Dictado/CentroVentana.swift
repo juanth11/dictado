@@ -5,7 +5,7 @@ import SwiftUI
 /// La ventana del centro de mando: Hoy (el brief del día), Metas (semana, mes y trimestre) y Orquesta (tus agentes).
 /// Lee el estado con el comando configurado (CentroDatos.swift) al abrirse y cada 5 minutos mientras está abierta.
 /// Se crea al abrirla y se suelta al cerrarla: cerrada no ocupa memoria ni corre nada.
-/// Atajos con la ventana al frente: ⌘1 Hoy · ⌘2 Metas · ⌘3 Orquesta · ⌘R actualizar · ⌘W cerrar.
+/// Atajos con la ventana al frente: ⌘1 Hoy · ⌘2 Metas · ⌘3 Orquesta · ⌘4 Inbox · ⌘R actualizar · ⌘W cerrar.
 @MainActor
 final class Centro: NSObject, NSWindowDelegate {
     @MainActor @Observable
@@ -104,6 +104,7 @@ final class Centro: NSObject, NSWindowDelegate {
                 case "1": self.navegacion.seccion = .hoy
                 case "2": self.navegacion.seccion = .metas
                 case "3": self.navegacion.seccion = .orquesta
+                case "4": self.navegacion.seccion = .inbox
                 case "r": self.store.actualizar()
                 case "w": v.performClose(nil)
                 default: return e
@@ -151,7 +152,13 @@ private struct RaizCentro: View {
         let ctx = ContextoCentro(sesiones: claude?.sesiones ?? [], leido: store.leido, cargando: store.cargando,
                                  error: store.error, configurado: store.configurado, enVentana: true,
                                  actualizar: { store.actualizar() }, abrir: abrir,
-                                 abrirSesion: { SesionesClaude.abrir($0) })
+                                 abrirSesion: { SesionesClaude.abrir($0) },
+                                 aplicando: store.aplicando, fallos: store.fallos, puedeActuar: store.puedeActuar,
+                                 aplicarInbox: { store.aplicarInbox($0, accion: $1, destino: $2) },
+                                 copiar: { texto in
+                                     NSPasteboard.general.clearContents()
+                                     NSPasteboard.general.setString(texto, forType: .string)
+                                 })
         VistaCentro(estado: store.estado, ctx: ctx, seccion: $navegacion.seccion)
             .panelHalo(simulado: simulado)
             .ignoresSafeArea()

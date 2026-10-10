@@ -29,7 +29,8 @@ func hojaCentroReal(_ destino: URL, escena: String?) -> Bool {
                  Date().timeIntervalSince(inicio), estado.vps ? "sí" : "no", estado.brief == nil ? "no" : "sí",
                  estado.metas == nil ? "no" : "sí", estado.noticias?.items.count ?? 0,
                  estado.orquesta == nil ? "no" : "sí", estado.finanzas == nil ? "no" : "sí"))
-    return renderCentro(estado, destino: destino, escena: escena, ctx: ContextoCentro(sesiones: sesionesAhora(), leido: Date()))
+    return renderCentro(estado, destino: destino, escena: escena,
+                        ctx: ContextoCentro(sesiones: sesionesAhora(), leido: Date(), puedeActuar: CentroStore.acciones != nil))
 }
 
 @MainActor
