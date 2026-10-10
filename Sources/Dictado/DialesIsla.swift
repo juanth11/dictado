@@ -152,9 +152,9 @@ struct Dial<Centro: View>: View {
                 Marcas(cuenta: marcas, arco: arco, desde: 0, hasta: v, largo: anillo)
                     .stroke(AngularGradient(colors: colores, center: .center, startAngle: .degrees(inicio),
                                             endAngle: .degrees(inicio + arco)),
-                            style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+                            style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
                     .frame(width: lado, height: lado)
-                    .shadow(color: (colores.last ?? .white).opacity(0.85), radius: 2.5)
+                    .shadow(color: (colores.last ?? .white).opacity(0.75), radius: 2)
                 // núcleo claro de cada rayita encendida: se ve "prendida", no solo pintada
                 Marcas(cuenta: marcas, arco: arco, desde: 0, hasta: v, largo: anillo * 0.55)
                     .stroke(Color.white.opacity(0.5), style: StrokeStyle(lineWidth: 0.6, lineCap: .round))

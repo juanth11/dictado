@@ -43,8 +43,8 @@ struct DiaAgente {
     var avance: Double { total == 0 ? 1 : Double(corridas.count) / Double(total) }
 }
 
-/// Un agente de fuera del Mac en una sola línea, para que no empuje las sesiones de Claude: su dial pequeño,
-/// el nombre, cómo va (o la alerta) y una cápsula líquida con lo que ya corrió hoy. Tocarla abre el detalle.
+/// Un agente de fuera del Mac con la misma forma que una sesión de Claude: su dial pequeño, el nombre, cómo va (o la
+/// alerta) y, a la derecha, una cápsula líquida corta con lo que ya corrió hoy. Tocarla abre el detalle.
 struct FilaAgente: View {
     let agente: AgentesRemotos.Agente
     let abrir: () -> Void
@@ -55,18 +55,16 @@ struct FilaAgente: View {
         let mal = !agente.alertas.isEmpty || agente.estado == .caido || agente.error != nil
         Button(action: abrir) {
             HStack(spacing: 10) {
-                Dial(lado: 26, valor: dia.avance, colores: tono.gradiente, marcas: 20, arco: 360, anillo: 3, brillo: 0.7, destello: false) {
+                Dial(lado: 26, valor: dia.avance, colores: tono.gradiente, marcas: 20, arco: 360, anillo: 3, brillo: 0.6, destello: false) {
                     Image(systemName: "server.rack").font(.system(size: 7.5, weight: .semibold)).foregroundStyle(Halo.texto)
                 }
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: 6) {
-                        Text(agente.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
-                        Text(subtitulo(dia)).font(Halo.detalle).foregroundStyle(mal ? tono.claro : Halo.texto3).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Halo.texto3)
-                    }
-                    Liquido(valor: max(0.06, dia.avance), tono: tono, alto: 5)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(agente.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                    Text(subtitulo(dia)).font(Halo.detalle).foregroundStyle(mal ? tono.claro : Halo.texto3).lineLimit(1)
                 }
+                Spacer(minLength: 6)
+                Liquido(valor: max(0.08, dia.avance), tono: tono, alto: 4).frame(width: 44)
+                Image(systemName: "chevron.right").font(.system(size: 8.5, weight: .bold)).foregroundStyle(Halo.texto3)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 3)

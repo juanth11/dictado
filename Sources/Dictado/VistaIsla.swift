@@ -665,14 +665,14 @@ private struct BotonUnirse: View {
                         .padding(.horizontal, 14)
                         .frame(height: 30)
                         .background(Capsule().fill(LinearGradient(colors: Tono.verde.gradiente.reversed(), startPoint: .top, endPoint: .bottom)))
-                        .shadow(color: Tono.verde.base.opacity(0.6), radius: 9)
+                        .shadow(color: Tono.verde.base.opacity(0.45), radius: 6)
                         .fixedSize()
                 } else {
                     Image(systemName: "video.fill")
                         .font(.system(size: redondo ? 13 : 11, weight: .semibold))
                         .frame(width: redondo ? 34 : 28, height: redondo ? 34 : 28)
                         .background(Circle().fill(LinearGradient(colors: Tono.verde.gradiente.reversed(), startPoint: .top, endPoint: .bottom)))
-                        .shadow(color: Tono.verde.base.opacity(0.6), radius: 8)
+                        .shadow(color: Tono.verde.base.opacity(0.45), radius: 6)
                 }
             }
             .foregroundStyle(conTexto ? .black : .white)

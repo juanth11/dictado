@@ -129,7 +129,7 @@ struct Regla: View {
     let tono: Tono
     var cuantas = 32
     var alto: CGFloat = 12
-    var grosor: CGFloat = 2
+    var grosor: CGFloat = 1.5
     var apagada = false
 
     var body: some View {
@@ -142,7 +142,7 @@ struct Regla: View {
                 Capsule()
                     .fill(prendida ? (punta ? Color.white : c) : Color.white.opacity(i < encendidas ? 0.3 : 0.12))
                     .frame(width: grosor, height: punta ? alto + 3 : alto)
-                    .shadow(color: prendida ? c.opacity(0.95) : .clear, radius: punta ? 4 : 2.2)
+                    .shadow(color: prendida ? c.opacity(0.85) : .clear, radius: punta ? 3 : 1.6)
                 if i < cuantas - 1 { Spacer(minLength: 0) }
             }
         }
@@ -190,7 +190,7 @@ struct Liquido: View {
                         }
                     }
                     .frame(width: lleno)
-                    .shadow(color: tono.base.opacity(0.7), radius: alto * 0.45)
+                    .shadow(color: tono.base.opacity(0.55), radius: alto * 0.4)
             }
         }
         .frame(height: alto)
@@ -255,10 +255,10 @@ struct BotonHalo: View {
                     Capsule().fill(.white.opacity(0.1)).overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
                 } else if let tono {
                     Capsule().fill(LinearGradient(colors: [tono.claro, tono.base], startPoint: .top, endPoint: .bottom))
-                        .shadow(color: tono.base.opacity(0.6), radius: 9)
+                        .shadow(color: tono.base.opacity(0.45), radius: 6)
                 } else {
-                    Capsule().fill(LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .top, endPoint: .bottom))
-                        .shadow(color: .white.opacity(0.18), radius: 8)
+                    Capsule().fill(LinearGradient(colors: [.white, Color(white: 0.88)], startPoint: .top, endPoint: .bottom))
+                        .shadow(color: .white.opacity(0.1), radius: 6)
                 }
             }
             .contentShape(Capsule())
