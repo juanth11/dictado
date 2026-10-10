@@ -6,13 +6,13 @@ import os
 
 private let log = Logger(subsystem: "app.dictado", category: "hyper")
 
-// Tecla hyper: Bloq Mayús mantenida = ⌃⌥⌘⇧; pulsada sola = Esc.
+// Tecla hyper: Bloq Mayús mantenida con otra tecla = ⌃⌥⌘⇧; pulsada sola = Bloq Mayús de siempre.
 //
 // Dos piezas:
 // 1. Mapeo HID (`UserKeyMapping`, lo mismo que hace `hidutil`): Bloq Mayús llega al sistema como F18. Así macOS
 //    nunca prende el bloqueo de mayúsculas y la tecla queda libre para usarla como modificador.
 // 2. Event tap de teclado: F18 abajo activa hyper (y se consume); mientras está activa, cada tecla lleva los cuatro
-//    modificadores; F18 arriba sin otra tecla en medio publica Esc.
+//    modificadores; F18 arriba sin otra tecla en medio alterna el bloqueo de mayúsculas, como siempre.
 //
 // Dónde se intercepta: en el punto HID (`.cghidEventTap`), donde los eventos entran al WindowServer. Es el primer
 // punto de la cadena, así que todo lo que viene después ve la combinación ya armada: los atajos de Carbon
@@ -202,8 +202,8 @@ final class TeclaHyper {
 struct MaquinaHyper {
     static let teclaF18: Int64 = 79  // kVK_F18
     static let modificadores: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand, .maskShift]
-    /// Mantenida más de esto sin tocar otra tecla, no manda Esc al soltar: cambiaste de idea (como Karabiner).
-    static let esperaEsc: TimeInterval = 1.0
+    /// Mantenida más de esto sin tocar otra tecla, no alterna las mayúsculas al soltar: cambiaste de idea.
+    static let esperaSola: TimeInterval = 1.0
     /// Hyper tiene que llevar al menos esto abajo para dar por perdido su soltar.
     static let esperaSoltarPerdido: TimeInterval = 0.5
 
@@ -211,7 +211,7 @@ struct MaquinaHyper {
         case pasar
         case pasarCon(CGEventFlags)
         case consumir
-        case consumirYEsc(CGEventFlags)
+        case consumirYAlternarMayusculas
     }
 
     private(set) var activa = false
@@ -231,17 +231,17 @@ struct MaquinaHyper {
             // La repetición automática de la tecla mantenida no reinicia nada.
             if !repeticion || !activa {
                 activa = true
-                usada = repeticion  // si se perdió el primer evento, que no mande Esc
+                usada = repeticion  // si se perdió el primer evento, que no alterne las mayúsculas
                 desde = momento
                 guardaFiable = f18Abajo()
             }
             return .consumir
         case .keyUp where tecla == Self.teclaF18:
             guard activa else { return .consumir }
-            let esc = !usada && momento - desde <= Self.esperaEsc
+            let sola = !usada && momento - desde <= Self.esperaSola
             activa = false
             usada = false
-            return esc ? .consumirYEsc(flags.intersection(Self.modificadores)) : .consumir
+            return sola ? .consumirYAlternarMayusculas : .consumir
         case .keyDown:
             // F18 ya no está abajo: se perdió su soltar. Solo se cree si hyper lleva más de medio segundo: el estado
             // HID puede ir por delante de la cola del tap y, en un Hyper+↩ soltado muy rápido, el ↩ llegaría solo
@@ -256,7 +256,7 @@ struct MaquinaHyper {
         case .keyUp:
             return conHyper.remove(tecla) != nil ? .pasarCon(flags.union(Self.modificadores)) : .pasar
         case .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown:
-            if activa { usada = true }  // hyper + ⇧ o + clic: había intención de combinar, no de Esc
+            if activa { usada = true }  // hyper + ⇧ o + clic: había intención de combinar, no de mayúsculas
             return .pasar
         default:
             return .pasar
@@ -292,19 +292,11 @@ final class TapHyper: @unchecked Sendable {
                 if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
                 return Unmanaged.passUnretained(evento)
             }
-            let (sigue, esc) = TapHyper.transformar(
+            let (sigue, mayusculas) = TapHyper.transformar(
                 evento, tipo: tipo, maquina: &maquina, momento: ProcessInfo.processInfo.systemUptime,
                 f18Abajo: { CGEventSource.keyState(.hidSystemState, key: CGKeyCode(MaquinaHyper.teclaF18)) })
-            if let esc {
-                // tapPostEvent lo inserta justo después de este tap: lo ven los atajos (el Esc que cancela el
-                // dictado) y la app, y no vuelve a pasar por aquí.
-                let fuente = CGEventSource(stateID: .privateState)
-                for abajo in [true, false] {
-                    guard let e = CGEvent(keyboardEventSource: fuente, virtualKey: CGKeyCode(kVK_Escape), keyDown: abajo) else { continue }
-                    e.flags = esc
-                    e.tapPostEvent(proxy)
-                }
-            }
+            // Pulsada sola: Bloq Mayús de siempre (prende o apaga el bloqueo de mayúsculas y su luz).
+            if mayusculas { MapeoHyper.alternarBloqMayus() }
             return sigue ? Unmanaged.passUnretained(evento) : nil
         }
     }
@@ -399,20 +391,20 @@ final class TapHyper: @unchecked Sendable {
     }
 
     /// Aplica la máquina a un evento (le suma los modificadores si toca) sin publicarlo. Devuelve si el evento
-    /// sigue su camino y, si hay que mandar Esc, con qué modificadores. `--probar-hyper` la usa con eventos
+    /// sigue su camino y si hay que alternar el bloqueo de mayúsculas. `--probar-hyper` la usa con eventos
     /// construidos a mano.
     static func transformar(_ evento: CGEvent, tipo: CGEventType, maquina: inout MaquinaHyper, momento: TimeInterval,
-                            f18Abajo: () -> Bool) -> (sigue: Bool, esc: CGEventFlags?) {
+                            f18Abajo: () -> Bool) -> (sigue: Bool, mayusculas: Bool) {
         let resultado = maquina.procesar(
             tipo: tipo, tecla: evento.getIntegerValueField(.keyboardEventKeycode), flags: evento.flags,
             repeticion: evento.getIntegerValueField(.keyboardEventAutorepeat) != 0, momento: momento, f18Abajo: f18Abajo)
         switch resultado {
-        case .pasar: return (true, nil)
+        case .pasar: return (true, false)
         case .pasarCon(let flags):
             evento.flags = flags
-            return (true, nil)
-        case .consumir: return (false, nil)
-        case .consumirYEsc(let flags): return (false, flags)
+            return (true, false)
+        case .consumir: return (false, false)
+        case .consumirYAlternarMayusculas: return (false, true)
         }
     }
 }
@@ -550,13 +542,26 @@ enum MapeoHyper {
     /// llega como Bloq Mayús). Se apaga una vez.
     private static func apagarBloqMayus() {
         guard CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift) else { return }
+        conBloqueo { conexion in IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), false) }
+    }
+
+    /// Bloq Mayús pulsada sola: prende o apaga el bloqueo de mayúsculas (y su luz), como sin hyper.
+    static func alternarBloqMayus() {
+        conBloqueo { conexion in
+            var prendido = false
+            IOHIDGetModifierLockState(conexion, Int32(kIOHIDCapsLockState), &prendido)
+            IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), !prendido)
+        }
+    }
+
+    private static func conBloqueo(_ hacer: (io_connect_t) -> Void) {
         let servicio = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching(kIOHIDSystemClass))
         guard servicio != 0 else { return }
         defer { IOObjectRelease(servicio) }
         var conexion: io_connect_t = 0
         guard IOServiceOpen(servicio, mach_task_self_, UInt32(kIOHIDParamConnectType), &conexion) == KERN_SUCCESS else { return }
         defer { IOServiceClose(conexion) }
-        IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), false)
+        hacer(conexion)
     }
 }
 

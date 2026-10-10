@@ -301,6 +301,7 @@ func hojaIsla(_ destino: URL) -> Bool {
         let privacidad = Privacidad(vivo: false)
         let claude = SesionesClaude(vivo: false)
         let salud = ejemploSalud()
+        let agentes = ejemploAgentes()
         claude.sesiones = [
             .init(id: "a", pid: 1, nombre: "Rediseño del sitio web", carpeta: "proyectos", estado: .esperando,
                   espera: "Necesita tu permiso", desde: Date().addingTimeInterval(-40), contexto: 318_000,
@@ -383,7 +384,7 @@ func hojaIsla(_ destino: URL) -> Bool {
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)  // barra de menú
             UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black).frame(width: 186, height: 32)
             VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud, privacidad: privacidad, claude: claude,
-                      salud: salud, control: nil)
+                      agentes: agentes, salud: salud, control: nil)
                 .frame(width: Isla.expandida.width, height: Isla.expandida.height)
         }
         .frame(width: 700, height: 210)
@@ -552,4 +553,22 @@ func fondoDeMuestra() -> NSImage {
         .draw(in: NSRect(x: 0, y: 0, width: 3000, height: 2000), angle: -65)
     imagen.unlockFocus()
     return imagen
+}
+
+/// Datos de ejemplo de agentes remotos para los renders.
+@MainActor
+func ejemploAgentes() -> AgentesRemotos {
+    let a = AgentesRemotos(vivo: false)
+    let hoy = Calendar.current.startOfDay(for: Date())
+    func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
+    a.agentes = [AgentesRemotos.Agente(
+        nombre: "Agente del servidor", estado: .ok, resumen: "8 tareas activas · todo bien", alertas: [],
+        tareas: [
+            .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+            .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
+            .init(nombre: "revision-semanal", estado: "corriendo", ultima: h(10), proxima: nil, detalle: "lunes 10:00"),
+            .init(nombre: "radar-contenidos", estado: "pausada", ultima: h(-700), proxima: nil, detalle: ""),
+        ],
+        actualizado: Date())]
+    return a
 }

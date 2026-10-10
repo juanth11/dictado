@@ -35,6 +35,7 @@ struct VistaIsla: View {
     let hud: EstadoHUD
     let privacidad: Privacidad
     let claude: SesionesClaude
+    let agentes: AgentesRemotos
     let salud: EstadoSalud
     let control: Isla?
 

@@ -27,7 +27,7 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
 | **Dictado pulido con IA local** (opcional) | Automático al dictar: el modelo de Apple en el Mac quita muletillas y arregla la puntuación, con el tono de la app al frente (chat, correo, prompt, documento). [Ficha](docs/FUNCIONES.md#dictado-pulido-con-ia-local) | Wispr Flow, superwhisper (modos) |
 | **Acciones sobre texto seleccionado** (opcional) | **Hyper + T** sobre un texto: traducir, corregir, resumir, más formal, mandar a Claude o guardar como idea; luego Reemplazar o Copiar. [Ficha](docs/FUNCIONES.md#acciones-sobre-texto-seleccionado) | PopClip, Raycast AI |
-| **Tecla hyper** (opcional) | Mantén **Bloq Mayús** = ⌃⌥⌘⇧, para atajos que no chocan con nada; sola es **Esc**. Hyper + V portapapeles, + C captura, + M Salud del Mac, + U unirse a la reunión. | Hyperkey, Karabiner (lo básico) |
+| **Tecla hyper** (opcional) | Mantén **Bloq Mayús** junto con otra tecla = ⌃⌥⌘⇧, para atajos que no chocan con nada; sola sigue activando las **mayúsculas**. Hyper + V portapapeles, + C captura, + M Salud del Mac, + U unirse a la reunión. | Hyperkey, Karabiner (lo básico) |
 | **Ventanas por teclado** (opcional) | **Hyper + ←/→**: mitad, tercio y dos tercios. **↑** casi maximizar, **↓** restaurar, **N** otra pantalla, **↩** centrar. | Rectangle, Magnet |
 | **Buscador de ventanas** (opcional) | **Hyper + Espacio**: escribe parte del título o de la app y salta a la ventana, aunque esté minimizada. | Contexts, AltTab |
 

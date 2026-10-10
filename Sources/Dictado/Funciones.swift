@@ -19,7 +19,7 @@ enum Funcion: String, CaseIterable {
 
     var detalle: String {
         switch self {
-        case .hyper: return "Mantén Bloq Mayús = ⌃⌥⌘⇧ para atajos que no chocan con nada; sola = Esc"
+        case .hyper: return "Mantén Bloq Mayús + otra tecla = ⌃⌥⌘⇧ para atajos que no chocan con nada; sola sigue siendo Bloq Mayús"
         case .ventanas: return "Hyper + flechas: mitades, tercios, casi maximizar, otra pantalla, restaurar"
         case .buscador: return "Hyper + Espacio: busca una ventana por su título y salta a ella"
         case .pulido: return "Limpia muletillas y puntuación del dictado según la app (todo en el Mac)"

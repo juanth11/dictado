@@ -27,13 +27,13 @@ Apagarla desde el menú la desactiva al instante, sin reiniciar. Para quitarla d
 
 ## Atajos con la tecla hyper
 
-Hyper es Bloq Mayús mantenida, que equivale a ⌃⌥⌘⇧ pulsadas juntas. Pulsada sola funciona como Esc.
+Hyper es Bloq Mayús mantenida junto con otra tecla, que equivale a ⌃⌥⌘⇧ pulsadas juntas. Pulsada sola sigue activando o desactivando las mayúsculas, como siempre.
 
 Los atajos se registran con los cuatro modificadores, así que también funcionan pulsando ⌃⌥⌘⇧ a mano (por ejemplo, si apagas la tecla hyper).
 
 | Atajo | Acción |
 |---|---|
-| Bloq Mayús sola | Esc |
+| Bloq Mayús sola | Mayúsculas, como siempre |
 | Hyper + V | Abre el portapapeles |
 | Hyper + C | Abre la captura |
 | Hyper + M | Abre Salud del Mac |
@@ -55,19 +55,19 @@ Los atajos se registran con los cuatro modificadores, así que también funciona
 
 **Qué hace.** Convierte Bloq Mayús en una tecla hyper:
 
-- **Mantenida** equivale a ⌃⌥⌘⇧ pulsadas juntas: una combinación que casi ninguna app usa, así que tus atajos no chocan con nada.
-- **Pulsada sola** (menos de un segundo, sin tocar otra tecla) es **Esc**.
+- **Mantenida junto con otra tecla** equivale a ⌃⌥⌘⇧ pulsadas juntas: una combinación que casi ninguna app usa, así que tus atajos no chocan con nada.
+- **Pulsada sola** (menos de un segundo, sin tocar otra tecla) sigue siendo **Bloq Mayús**: prende o apaga las mayúsculas y su luz, como siempre.
 - Trae cuatro atajos: Hyper + V (portapapeles), Hyper + C (captura), Hyper + M (Salud del Mac) y Hyper + U (unirse a la próxima reunión).
 
-**Cómo usarla.** Mantén Bloq Mayús y pulsa la otra tecla. Para Esc, tócala sola. En cualquier app que deje grabar atajos (Raycast, Keyboard Maestro, Ajustes → Teclado → Atajos de teclado), mantén Bloq Mayús al grabar y queda como Hyper + tecla.
+**Cómo usarla.** Mantén Bloq Mayús y pulsa la otra tecla. Para escribir en mayúsculas, tócala sola como siempre. En cualquier app que deje grabar atajos (Raycast, Keyboard Maestro, Ajustes → Teclado → Atajos de teclado), mantén Bloq Mayús al grabar y queda como Hyper + tecla.
 
 **Cómo funciona.**
 
-1. **Mapeo de la tecla.** Con el `UserKeyMapping` del sistema HID (lo mismo que hace `hidutil`), Bloq Mayús llega al sistema como F18. Así macOS nunca prende el bloqueo de mayúsculas. El mapeo se mezcla con los que ya tengas, sin pisarlos. Si Bloq Mayús ya tenía un mapeo tuyo (por ejemplo, a Control), se guarda y se devuelve al apagar la función.
+1. **Mapeo de la tecla.** Con el `UserKeyMapping` del sistema HID (lo mismo que hace `hidutil`), Bloq Mayús llega al sistema como F18. Así macOS no prende el bloqueo de mayúsculas por su cuenta: lo hace Dictado solo cuando la tocas sola. El mapeo se mezcla con los que ya tengas, sin pisarlos. Si Bloq Mayús ya tenía un mapeo tuyo (por ejemplo, a Control), se guarda y se devuelve al apagar la función.
    - Se aplica al prender la función, al despertar el Mac y al conectar un teclado (con un aviso de IOKit, sin nada en bucle).
    - Se quita al apagar la función y al salir de Dictado: menú Salir, `pkill`, Ctrl+C en la terminal o cierre de sesión.
    - Solo se pone si el event tap está funcionando. Sin permiso, Bloq Mayús sigue siendo Bloq Mayús.
-2. **Event tap.** F18 abajo activa hyper y no llega a las apps. Mientras está activa, cada tecla lleva los cuatro modificadores. F18 arriba sin otra tecla en medio manda Esc.
+2. **Event tap.** F18 abajo activa hyper y no llega a las apps. Mientras está activa, cada tecla lleva los cuatro modificadores. F18 arriba sin otra tecla en medio alterna el bloqueo de mayúsculas (IOKit `IOHIDSetModifierLockState`).
    - **Dónde se intercepta:** en el punto HID (`kCGHIDEventTap`), donde los eventos entran al WindowServer. Es el primer punto de la cadena, así que todo lo que viene después ve la combinación ya armada: los atajos de Carbon (`RegisterEventHotKey`, los de Dictado y los de otras apps como Raycast), los event taps de sesión de otras apps y la app al frente. En el punto de sesión, en cambio, los taps HID de otras apps verían la tecla sin modificadores. Si macOS no deja crear el tap HID, se usa el de sesión como respaldo.
    - Corre en un hilo propio: si Dictado está ocupado (transcribiendo, dibujando o esperando a otra app), el teclado del Mac no se traba.
    - Si macOS apaga el tap por demora, se vuelve a prender y hyper se suelta, para que no quede pegada.

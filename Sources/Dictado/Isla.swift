@@ -351,6 +351,8 @@ final class Isla {
     let estado = EstadoIsla()
     let privacidad: Privacidad
     let claude: SesionesClaude
+    /// Agentes fuera del Mac (servidores) configurados en el ajuste `agentes`; ver Agentes.swift.
+    let agentes: AgentesRemotos
     private let bateria: Bateria
     private var niveles: Niveles?
     private var panel: NSPanel?
@@ -371,10 +373,14 @@ final class Isla {
         bateria = Bateria()
         privacidad = Privacidad()
         claude = SesionesClaude()
+        agentes = AgentesRemotos()
         musica.alCambiarCancion = { [weak self] in self?.mostrar(.cancion, segundos: 3.2) }
         agenda.alAvisar = { [weak self] e in
             self?.mostrar(.evento(titulo: e.titulo, inicio: e.inicio, color: e.color, enlace: e.enlace),
                           segundos: e.enlace == nil ? 7 : 20)
+        }
+        agentes.alAlertar = { [weak self] agente, alerta in
+            self?.mostrar(.salud(titulo: agente, detalle: alerta, grave: true), segundos: 8)
         }
         claude.alNecesitar = { [weak self] s in
             self?.mostrar(.claude(sesion: s, necesita: true, duracion: 0), segundos: 12)
@@ -437,7 +443,7 @@ final class Isla {
             sensor.alEntrar = { [weak self] in self?.expandir() }
             sensor.alSalir = { [weak self] in self?.colapsar() }
             let vista = VistaPrimerClic(rootView: VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud,
-                                                            privacidad: privacidad, claude: claude, salud: salud.estado,
+                                                            privacidad: privacidad, claude: claude, agentes: agentes, salud: salud.estado,
                                                             control: self))
             vista.autoresizingMask = [.width, .height]
             sensor.addSubview(vista)
