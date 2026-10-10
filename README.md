@@ -49,7 +49,7 @@ Toda la app habla un mismo idioma visual, **Halo**: negro de fondo, diales de ma
 
   De Claude se lee `~/.claude` en solo lectura.
 - **Mac:** cuatro diales (procesador, memoria, gráficos y disco) cuyo resplandor sube con la gravedad, el titular del diagnóstico y el ícono ↗ que abre Salud del Mac.
-- **Volumen y brillo:** las teclas del teclado muestran algo en el notch en lugar del cuadro de macOS. El volumen es un arco de termostato con volumen que se enciende de azul a naranja hasta el nivel, con una perilla que brilla, la cifra en el centro y a dónde va el sonido (por ejemplo, tus AirPods). El brillo es una cuña de rayitas que se enciende hasta el nivel. Al mantener la tecla se mueven sin volver a aparecer; en silencio el arco se apaga, el botón del parlante se pone rojo y la perilla queda en el volumen guardado.
+- **Volumen y brillo:** las teclas del teclado muestran algo en el notch en lugar del cuadro de macOS. El volumen es una línea muy fina con un parlante en cada punta (bajar y subir, como en macOS) sobre la que una bruma de luz llega hasta el nivel, con la cifra encima, el botón del parlante y a dónde va el sonido (por ejemplo, tus AirPods); la punta hacia donde lo mueves se enciende un instante. El brillo es una cuña de rayitas que se enciende hasta el nivel. Al mantener la tecla se mueven sin volver a aparecer; en silencio la bruma se apaga, el botón del parlante se pone rojo y el punto queda en el volumen guardado.
 - **Cargador, dictado en vivo y avisos de salud** del Mac.
 
 ### Agentes remotos

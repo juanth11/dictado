@@ -250,6 +250,7 @@ private struct BarraNivel: View {
     var body: some View {
         if tipo == .volumen {
             switch EstiloVolumen.actual {
+            case .bruma: VolumenBruma(estado: estado, valor: valor, silencio: silencio, salida: salida)
             case .niebla: VolumenNiebla(estado: estado, valor: valor, silencio: silencio, salida: salida)
             case .calor: VolumenCalor(estado: estado, valor: valor, silencio: silencio, salida: salida)
             case .espectro: VolumenEspectro(estado: estado, valor: valor, silencio: silencio, salida: salida)
@@ -424,15 +425,15 @@ private struct VolumenIsla: View {
     }
 }
 
-/// Cómo se ve el volumen en la isla. Se elige con `defaults write app.dictado estiloVolumen niebla` (termostato,
-/// niebla, calor o espectro); en los renders, con la variable DICTADO_VOLUMEN.
+/// Cómo se ve el volumen en la isla. Se elige con `defaults write app.dictado estiloVolumen niebla` (bruma, que es
+/// el de siempre, termostato, niebla, calor o espectro); en los renders, con la variable DICTADO_VOLUMEN.
 enum EstiloVolumen: String {
-    case termostato, niebla, calor, espectro
+    case bruma, termostato, niebla, calor, espectro
 
     static var actual: EstiloVolumen {
         let valor = ProcessInfo.processInfo.environment["DICTADO_VOLUMEN"]
             ?? UserDefaults(suiteName: "app.dictado")?.string(forKey: "estiloVolumen")
-        return valor.flatMap(EstiloVolumen.init(rawValue:)) ?? .termostato
+        return valor.flatMap(EstiloVolumen.init(rawValue:)) ?? .bruma
     }
 }
 
@@ -440,6 +441,116 @@ enum EstiloVolumen: String {
 private let ondaVolumen: [Double] = (0..<48).map { i in
     let x = Double(i)
     return 0.25 + 0.75 * abs(sin(x * 0.61) * 0.55 + sin(x * 1.37 + 1.1) * 0.3 + sin(x * 0.23 + 0.4) * 0.15)
+}
+
+/// Volumen "bruma" (el de siempre): el botón de vidrio del parlante a la izquierda (rojo en silencio); en el centro,
+/// una línea muy fina con topes y un parlante pequeño en cada punta (bajar a la izquierda, subir a la derecha, como el
+/// control de volumen de macOS), sobre la que una bruma de luz azul y violeta llega hasta el nivel; en el nivel, un
+/// punto blanco con su brillo y, encima, la cifra con una línea punteada. Al subir o bajar, el parlante de esa punta se
+/// enciende un instante. A la derecha, a dónde va el sonido.
+private struct VolumenBruma: View {
+    let estado: EstadoIsla
+    let valor: Double
+    let silencio: Bool
+    var salida: SalidaAudio?
+
+    /// Hacia dónde fue el último cambio (−1 bajó, 1 subió); se apaga solo. En los renders, DICTADO_DIRECCION.
+    @State private var direccion = Int(ProcessInfo.processInfo.environment["DICTADO_DIRECCION"] ?? "") ?? 0
+    @State private var apagar: DispatchWorkItem?
+
+    private static let rojo = Color(red: 1.0, green: 0.33, blue: 0.27)
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        VStack(spacing: 0) {
+            Color.clear.frame(height: estado.notch.height)
+            HStack(spacing: 16) {
+                BotonVidrio(simbolo: silencio ? "speaker.slash.fill" : "speaker.wave.3.fill", valor: valor,
+                            tinte: silencio ? Self.rojo : nil)
+                GeometryReader { g in
+                    let w = g.size.width
+                    let linea: CGFloat = g.size.height - 9   // la altura de la línea
+                    let x0: CGFloat = 16, x1 = w - 16         // entre los dos parlantes
+                    let x = x0 + (x1 - x0) * v
+                    ZStack(alignment: .topLeading) {
+                        if !silencio && v > 0 {  // la bruma hasta el nivel
+                            Path { p in
+                                let n = 12
+                                p.move(to: CGPoint(x: x0, y: linea + 3))
+                                for k in 0...n {
+                                    let xx = x0 + (x - x0) * CGFloat(k) / CGFloat(n)
+                                    let alto = 5 + 7 * CGFloat(ondaVolumen[(k * 3) % ondaVolumen.count]) * CGFloat(0.4 + 0.6 * Double(k) / Double(n))
+                                    p.addLine(to: CGPoint(x: xx, y: linea - alto))
+                                }
+                                p.addLine(to: CGPoint(x: x, y: linea + 3))
+                                p.closeSubpath()
+                            }
+                            .fill(LinearGradient(colors: [Tono.volumen.base.opacity(0.15), Tono.volumen.base, Tono.volumen.claro],
+                                                 startPoint: .leading, endPoint: .trailing))
+                            .blur(radius: 4.5)
+                            .opacity(0.85)
+                        }
+                        Path { p in  // la línea con sus topes
+                            p.move(to: CGPoint(x: x0, y: linea)); p.addLine(to: CGPoint(x: x1, y: linea))
+                            p.move(to: CGPoint(x: x0, y: linea - 3)); p.addLine(to: CGPoint(x: x0, y: linea + 3))
+                            p.move(to: CGPoint(x: x1, y: linea - 3)); p.addLine(to: CGPoint(x: x1, y: linea + 3))
+                        }
+                        .stroke(.white.opacity(0.28), lineWidth: 0.75)
+                        if !silencio {
+                            Capsule().fill(.white.opacity(0.85)).frame(width: max(0, x - x0), height: 0.9)
+                                .position(x: x0 + (x - x0) / 2, y: linea)
+                        }
+                        Path { p in p.move(to: CGPoint(x: x, y: 15)); p.addLine(to: CGPoint(x: x, y: linea - 3)) }  // la marca punteada
+                            .stroke(.white.opacity(silencio ? 0.25 : 0.5), style: StrokeStyle(lineWidth: 0.75, dash: [1.2, 2]))
+                        Circle().fill(.white.opacity(silencio ? 0.45 : 1)).frame(width: 6, height: 6)  // el nivel
+                            .shadow(color: .white.opacity(silencio ? 0 : 0.9), radius: 3)
+                            .shadow(color: Tono.volumen.claro.opacity(silencio ? 0 : 0.8), radius: 7)
+                            .position(x: x, y: linea)
+                        Text(silencio ? "Mudo" : "\(Int((v * 100).rounded()))")
+                            .font(.system(size: 13, weight: .light)).monospacedDigit()
+                            .foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
+                            .contentTransition(.numericText(value: v))
+                            .fixedSize()
+                            .position(x: min(max(x, 14), w - 14), y: 7)
+                        punta("speaker.fill", activa: direccion < 0).position(x: 5, y: linea)
+                        punta("speaker.wave.3.fill", activa: direccion > 0).position(x: w - 4, y: linea)
+                    }
+                }
+                .frame(height: 40)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Rotulo(silencio ? "Silencio" : "Volumen", color: silencio ? Self.rojo : Halo.texto3)
+                    if let salida {
+                        Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
+                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
+                            .labelStyle(EtiquetaJunta()).lineLimit(1)
+                    }
+                }
+                .frame(width: 104, alignment: .trailing)
+            }
+            .padding(.horizontal, 22)
+            .padding(.bottom, 3)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+        .onChange(of: valor) { viejo, nuevo in
+            guard nuevo != viejo else { return }
+            withAnimation(.easeOut(duration: 0.15)) { direccion = nuevo > viejo ? 1 : -1 }
+            apagar?.cancel()
+            let tarea = DispatchWorkItem { withAnimation(.easeOut(duration: 0.6)) { direccion = 0 } }
+            apagar = tarea
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: tarea)
+        }
+    }
+
+    /// El parlante de una punta: gris; encendido (blanco con brillo) si el volumen acaba de ir hacia ese lado.
+    private func punta(_ simbolo: String, activa: Bool) -> some View {
+        Image(systemName: simbolo)
+            .font(.system(size: 7.5, weight: .semibold))
+            .foregroundStyle(activa ? Color.white : Halo.texto3)
+            .shadow(color: activa ? Tono.volumen.claro : .clear, radius: 4)
+            .scaleEffect(activa ? 1.15 : 1)
+    }
 }
 
 /// Volumen como niebla de luz: hasta el nivel, la onda del sonido es una masa difuminada de azul a violeta y rosa;
