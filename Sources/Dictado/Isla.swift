@@ -330,7 +330,8 @@ final class EstadoIsla {
         case .salud: return CGSize(width: w + 2 * 136, height: h + 50)
         case .agente: return CGSize(width: w + 2 * 140, height: h + 50)
         case .nivel(let tipo, _, _, _):  // el volumen lleva el arco, un poco más alto
-            let alto: CGFloat = tipo == .brillo ? 44 : (EstiloVolumen.actual == .espectro ? 66 : (EstiloVolumen.actual == .bruma ? 48 : 52))
+            if tipo == .brillo { return CGSize(width: w + 2 * 92, height: h + 44) }
+            let alto: CGFloat = EstiloVolumen.actual == .espectro ? 66 : (EstiloVolumen.actual == .bruma ? 48 : 52)
             return CGSize(width: w + 2 * 124, height: h + alto)
         case nil: return CGSize(width: w + (alas ? 2 * 46 : 0) + (punto ? 2 * 14 : 0), height: h)
         }
