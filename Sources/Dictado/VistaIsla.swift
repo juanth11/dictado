@@ -51,8 +51,8 @@ struct VistaIsla: View {
             ZStack(alignment: .top) {
                 contenido
                     .id(estado.expandida ? UUID(uuidString: "00000000-0000-0000-0000-000000000001")! : estado.idActividad)
-                    .transition(.asymmetric(
-                        insertion: .scale(scale: 0.7, anchor: .top).combined(with: .opacity),
+                    .transition(.asymmetric(  // crece desde el notch y se enfoca
+                        insertion: .modifier(active: Enfoque(activo: true), identity: Enfoque(activo: false)),
                         removal: .opacity))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -60,10 +60,10 @@ struct VistaIsla: View {
         }
         .frame(width: tam.width, height: tam.height)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .animation(.spring(response: 0.46, dampingFraction: 0.74), value: estado.expandida)
-        .animation(.spring(response: 0.5, dampingFraction: 0.66), value: estado.idActividad)
-        .animation(.spring(response: 0.38, dampingFraction: 0.85), value: alas)
-        .animation(.spring(response: 0.38, dampingFraction: 0.85), value: privacidad.activo)
+        .animation(Halo.morfosis, value: estado.expandida)
+        .animation(Halo.entrada, value: estado.idActividad)
+        .animation(Halo.cambio, value: alas)
+        .animation(Halo.cambio, value: privacidad.activo)
         .environment(\.colorScheme, .dark)
         .onChange(of: alas) { control?.refrescarCompacta() }
         .onChange(of: privacidad.activo) { control?.refrescarCompacta() }
@@ -79,9 +79,10 @@ struct VistaIsla: View {
             case .dictado:
                 DictadoIsla(estado: estado, hud: hud)
             case .aviso(let icono, let texto):
-                Fila(notch: estado.notch) {
-                    IconoSaltarin(simbolo: icono, color: icono == "exclamationmark.triangle" ? .orange : .green)
-                    Text(texto).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                let tono: Tono = icono == "exclamationmark.triangle" ? .ambar : .verde
+                Fila(notch: estado.notch, tono: tono) {
+                    IconoSaltarin(simbolo: icono, color: tono.claro)
+                    Text(texto).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
                 }
             case .cancion:
                 AhoraSuena(estado: estado, musica: musica)
@@ -104,18 +105,32 @@ struct VistaIsla: View {
     }
 }
 
-/// Una fila de contenido debajo del notch (para los avisos cortos).
+/// Una fila de contenido debajo del notch (para los avisos cortos), con la luz de su tono subiendo desde el borde.
 private struct Fila<Contenido: View>: View {
     let notch: CGSize
+    var tono: Tono?
     @ViewBuilder let contenido: () -> Contenido
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: notch.height)
-            HStack(spacing: 10) { contenido() }
+            HStack(spacing: 11) { contenido() }
                 .padding(.horizontal, 26)
                 .frame(maxHeight: .infinity)
         }
+        .background { if let tono { LuzBorde(tono: tono, fuerza: 0.4, alto: 0.95) } }
+    }
+}
+
+/// Entrada de la isla: crece desde el notch, se enfoca y aparece (con `Halo.entrada`).
+private struct Enfoque: ViewModifier {
+    let activo: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(activo ? 0.88 : 1, anchor: .top)
+            .blur(radius: activo ? 10 : 0)
+            .opacity(activo ? 0 : 1)
     }
 }
 
@@ -228,7 +243,8 @@ private struct BarraNivel: View {
         }
     }
 
-    private var colores: [Color] { silencio ? Paleta.silencio : (tipo == .brillo ? Paleta.brillo : Paleta.volumen) }
+    private var tono: Tono { silencio ? .neutro : (tipo == .brillo ? .brillo : .volumen) }
+    private var colores: [Color] { silencio ? Paleta.silencio : tono.gradiente }
     private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
 
     var body: some View {
@@ -244,7 +260,7 @@ private struct BarraNivel: View {
                 }
                 VStack(alignment: .leading, spacing: 5) {
                     Rotulo(tipo == .brillo ? "Brillo" : (silencio ? "Silencio" : "Volumen"),
-                           color: silencio ? Self.rojoMudo.opacity(0.9) : colores[1].opacity(0.95))
+                           color: silencio ? Self.rojoMudo.opacity(0.9) : tono.claro)
                     Group {
                         if tipo == .volumen, let salida {
                             Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
@@ -269,13 +285,8 @@ private struct BarraNivel: View {
             .padding(.trailing, 30)
             .frame(maxHeight: .infinity)
         }
-        .background(alignment: .topLeading) {  // la isla toma el color del dial, como las píldoras de referencia
-            Ellipse()
-                .fill(RadialGradient(colors: [colores[1].opacity(silencio ? 0.05 : 0.16 + 0.14 * valor), .clear],
-                                     center: .center, startRadius: 0, endRadius: 150))
-                .frame(width: 300, height: 170)
-                .offset(x: FormaIsla.hombro + 30 + 31 - 150, y: estado.notch.height + 38 - 85)
-                .allowsHitTesting(false)
+        .background {  // la isla toma el color del nivel desde el borde; más fuerte cuanto más alto
+            if !silencio { LuzBorde(tono: tono, fuerza: 0.18 + 0.3 * valor, alto: 0.95, centro: 0.3, ancho: 0.8) }
         }
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: valor)
         .animation(.spring(response: 0.28, dampingFraction: 0.9), value: silencio)
@@ -309,7 +320,7 @@ private struct Ecualizador: View {
             let t = ctx.date.timeIntervalSinceReferenceDate
             HStack(spacing: 2.5) {
                 ForEach(0..<4, id: \.self) { i in
-                    Capsule().fill(color).frame(width: 3, height: alto(i, t))
+                    Capsule().fill(color).frame(width: 3, height: alto(i, t)).shadow(color: color.opacity(0.8), radius: 2.5)
                 }
             }
             .frame(width: 22, height: 20)
@@ -414,18 +425,18 @@ private struct SaludIsla: View {
     let ver: () -> Void
 
     var body: some View {
-        let colores = Paleta.gravedad(grave ? .mal : .atento)
-        Fila(notch: estado.notch) {
-            Dial(lado: 46, valor: 1, colores: colores, marcas: 30, arco: 360, anillo: 4, brillo: 0.85, destello: false) {
-                IconoSaltarin(simbolo: grave ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.67percent", color: colores[1])
+        let tono: Tono = grave ? .rojo : .ambar
+        Fila(notch: estado.notch, tono: tono) {
+            Dial(lado: 46, valor: 1, colores: tono.gradiente, marcas: 30, arco: 360, anillo: 4, brillo: 0.7, destello: false) {
+                IconoSaltarin(simbolo: grave ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.67percent", color: tono.claro)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Rotulo("Salud del Mac", color: colores[1])
-                Text(titulo).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                Text(detalle).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                Rotulo("Salud del Mac", color: tono.claro)
+                Text(titulo).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
+                Text(detalle).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
             }
             Spacer(minLength: 6)
-            BotonAviso(titulo: "Ver", accion: ver)
+            BotonHalo(titulo: "Ver", accion: ver)
         }
     }
 }
@@ -440,29 +451,24 @@ private struct AgenteIsla: View {
     let ver: () -> Void
 
     var body: some View {
-        let colores = Paleta.agente(caido ? .caido : .alerta)
+        let tono: Tono = caido ? .rojo : .ambar
         // "informe-diario falló: sin conexión" → título "informe-diario falló", detalle "sin conexión".
         let partes = alerta.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
-        Fila(notch: estado.notch) {
-            Dial(lado: 48, valor: 1, colores: colores, marcas: 30, arco: 360, anillo: 4, brillo: 0.9, destello: false) {
-                IconoSaltarin(simbolo: "server.rack", color: .white)
-                    .overlay(alignment: .bottomTrailing) {
-                        Circle().fill(colores[1]).frame(width: 7, height: 7)
-                            .overlay(Circle().stroke(.black, lineWidth: 1.5))
-                            .offset(x: 4, y: 3)
-                    }
+        Fila(notch: estado.notch, tono: tono) {
+            Dial(lado: 46, valor: 1, colores: tono.gradiente, marcas: 30, arco: 360, anillo: 4, brillo: 0.7, destello: false) {
+                IconoSaltarin(simbolo: "server.rack", color: tono.claro)
             }
             .modifier(Entrada())
             VStack(alignment: .leading, spacing: 1) {
-                Rotulo((caido ? "Sin respuesta · " : "Alerta · ") + nombre, color: colores[1])
-                Text(partes.first ?? alerta).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Rotulo((caido ? "Sin respuesta · " : "Alerta · ") + nombre, color: tono.claro)
+                Text(partes.first ?? alerta).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
                 if partes.count > 1 {
-                    Text(partes[1]).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(2)
+                    Text(partes[1]).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 6)
-            BotonAviso(titulo: "Ver", accion: ver)
+            BotonHalo(titulo: "Ver", accion: ver)
         }
     }
 }
@@ -543,14 +549,14 @@ private struct ClaudeIsla: View {
 
     var body: some View {
         let detalle = necesita ? sesion.actividad : sesion.resumen
-        Fila(notch: estado.notch) {
+        Fila(notch: estado.notch, tono: necesita ? .claude : .verde) {
             ZStack(alignment: .bottomTrailing) {
-                EstrellaClaude().fill(Color.claude).frame(width: 28, height: 28)
+                EstrellaClaude().fill(Tono.claude.base).frame(width: 28, height: 28)
                     .rotationEffect(.degrees(giro ? 45 : 0))
-                    .background { Resplandor(colores: Paleta.claude, difuso: 9).frame(width: 66, height: 66).opacity(0.75) }
+                    .background { Resplandor(colores: Tono.claude.gradiente, difuso: 9).frame(width: 62, height: 62).opacity(0.6) }
                 Image(systemName: necesita ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(.white, necesita ? Color.orange : Color.green)
+                    .foregroundStyle(.white, necesita ? Tono.claude.base : Tono.verde.base)
                     .background(Circle().fill(.black).padding(-1.5))
                     .offset(x: 4, y: 4)
             }
@@ -559,15 +565,14 @@ private struct ClaudeIsla: View {
             .onAppear { withAnimation(.spring(response: 1.1, dampingFraction: 0.45)) { giro = true } }
             VStack(alignment: .leading, spacing: 1) {
                 Rotulo(necesita ? sesion.espera : "Terminó · \(Tiempo.reloj(duracion))",
-                       color: necesita ? Color.claude : Paleta.gravedad(.bien)[1])
-                Text(sesion.nombre).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                       color: necesita ? Tono.claude.claro : Tono.verde.claro)
+                Text(sesion.nombre).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
                 if !detalle.isEmpty {
-                    Text(detalle).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                    Text(detalle).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
-            BotonAviso(titulo: necesita ? "Responder" : "Ver", fondo: necesita ? Color.claude : .white,
-                         texto: necesita ? .white : .black, accion: abrir)
+            BotonHalo(titulo: necesita ? "Responder" : "Ver", tono: necesita ? .claude : nil, accion: abrir)
         }
     }
 }
@@ -583,11 +588,10 @@ private struct EventoIsla: View {
     let unirse: (URL) -> Void
 
     var body: some View {
-        Fila(notch: estado.notch) {
-            Capsule().fill(color).frame(width: 4, height: 34).shadow(color: color.opacity(0.8), radius: 4)
+        Fila(notch: estado.notch, tono: Tono.de(color)) {
             VStack(alignment: .leading, spacing: 2) {
-                Rotulo(enlace == nil ? "Reunión" : "Videollamada", color: color)
-                Text(titulo).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Rotulo(enlace == nil ? "Reunión" : "Videollamada", color: Tono.de(color).claro)
+                Text(titulo).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
             }
             .layoutPriority(1)
             Spacer(minLength: 6)
@@ -595,18 +599,18 @@ private struct EventoIsla: View {
                 let falta = inicio.timeIntervalSince(ctx.date)
                 HStack(spacing: 14) {
                     if falta > 0 {
-                        NumeroPuntos(texto: Tiempo.cuentaRegresiva(hasta: inicio, desde: ctx.date), color: color)
+                        NumeroPuntos(texto: Tiempo.cuentaRegresiva(hasta: inicio, desde: ctx.date), color: Tono.de(color).claro)
                     } else {
                         Text("Ahora").font(.system(size: 24, weight: .thin)).foregroundStyle(color)
                     }
                     if let enlace {
                         ZStack {
-                            Resplandor(colores: Paleta.gravedad(.bien), difuso: 8).frame(width: 70, height: 70).opacity(0.65)
+                            Resplandor(colores: Tono.verde.gradiente, difuso: 8).frame(width: 66, height: 66).opacity(0.55)
                             Marcas(cuenta: 36, arco: 360, desde: max(0, min(1, falta / 300)), hasta: 1, largo: 3.5)
                                 .stroke(.white.opacity(0.16), style: StrokeStyle(lineWidth: 1, lineCap: .round))
                             Marcas(cuenta: 36, arco: 360, desde: 0, hasta: max(0, min(1, falta / 300)), largo: 3.5)
-                                .stroke(Paleta.gravedad(.bien)[2], style: StrokeStyle(lineWidth: 1.3, lineCap: .round))
-                                .shadow(color: Paleta.gravedad(.bien)[1], radius: 2)
+                                .stroke(Tono.verde.claro, style: StrokeStyle(lineWidth: 1.3, lineCap: .round))
+                                .shadow(color: Tono.verde.base, radius: 2)
                             BotonUnirse(redondo: true) { unirse(enlace) }
                         }
                         .frame(width: 48, height: 48)
@@ -626,13 +630,14 @@ private struct CargaIsla: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            IconoSaltarin(simbolo: "bolt.fill", color: .green).frame(width: 70)
+            IconoSaltarin(simbolo: "bolt.fill", color: Tono.verde.claro).shadow(color: Tono.verde.base, radius: 5).frame(width: 70)
             Spacer(minLength: estado.notch.width)
             HStack(spacing: 6) {
-                Text("\(porcentaje)%").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(.green)
+                Text("\(porcentaje) %").font(.system(size: 12, weight: .semibold)).monospacedDigit().foregroundStyle(Tono.verde.claro)
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 3.5).strokeBorder(.white.opacity(0.35), lineWidth: 1)
-                    RoundedRectangle(cornerRadius: 2).fill(.green).frame(width: 19 * lleno).padding(2)
+                    RoundedRectangle(cornerRadius: 2).fill(Tono.verde.base).frame(width: 19 * lleno).padding(2)
+                        .shadow(color: Tono.verde.base, radius: 3)
                 }
                 .frame(width: 25, height: 12)
                 .overlay(alignment: .trailing) { Capsule().fill(.white.opacity(0.35)).frame(width: 1.5, height: 4).offset(x: 2.5) }
@@ -656,20 +661,22 @@ private struct BotonUnirse: View {
             Group {
                 if conTexto {
                     Label("Unirse", systemImage: "video.fill")
-                        .font(.system(size: 12, weight: .semibold))
-                        .padding(.horizontal, 13)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 14)
                         .frame(height: 30)
-                        .background(Capsule().fill(PuntoPrivacidad.color(camara: true)))
-                        .shadow(color: PuntoPrivacidad.color(camara: true).opacity(0.6), radius: 8)
+                        .background(Capsule().fill(LinearGradient(colors: Tono.verde.gradiente.reversed(), startPoint: .top, endPoint: .bottom)))
+                        .shadow(color: Tono.verde.base.opacity(0.6), radius: 9)
                         .fixedSize()
                 } else {
                     Image(systemName: "video.fill")
                         .font(.system(size: redondo ? 14 : 11, weight: .semibold))
                         .frame(width: redondo ? 38 : 28, height: redondo ? 38 : 28)
-                        .background(Circle().fill(PuntoPrivacidad.color(camara: true)))
+                        .background(Circle().fill(LinearGradient(colors: Tono.verde.gradiente.reversed(), startPoint: .top, endPoint: .bottom)))
+                        .shadow(color: Tono.verde.base.opacity(0.6), radius: 8)
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(conTexto ? .black : .white)
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -689,20 +696,17 @@ private struct AhoraSuena: View {
                 Caratula(imagen: musica.caratula, lado: 46, radio: 11, resplandor: true)
                     .modifier(Entrada())
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("AHORA SUENA")
-                        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-                        .tracking(1.3)
-                        .foregroundStyle(.white.opacity(0.55))
-                    Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                    Text(musica.artista).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                    Rotulo(musica.sonando ? "Ahora suena" : "En pausa", color: Tono.de(musica.acento).claro)
+                    Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                    Text(musica.artista).font(.system(size: 12)).foregroundStyle(Halo.texto2).lineLimit(1)
                 }
                 Spacer(minLength: 8)
-                Ecualizador(color: musica.acento, activo: musica.sonando)
+                Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
             }
             .padding(.horizontal, 22)
             .frame(maxHeight: .infinity)
         }
-        .background { FondoArte(imagen: musica.caratula, forma: FormaIsla(radio: 24)) }
+        .background { LuzBorde(tono: Tono.de(musica.acento), fuerza: 0.5, alto: 0.95, centro: 0.3, ancho: 0.9) }
     }
 }
 
@@ -757,9 +761,26 @@ private struct Expandida: View {
 
     /// Punto de la pestaña Agentes: naranja si Claude te espera, rojo o ámbar si un agente remoto avisa.
     private var puntoAgentes: Color? {
-        if !claude.esperando.isEmpty { return Color.claude }
+        if !claude.esperando.isEmpty { return Tono.claude.base }
         if agentes.agentes.contains(where: { $0.estado == .caido }) { return AgentesRemotos.Estado.caido.color }
         return agentes.hayAlertas ? AgentesRemotos.Estado.alerta.color : nil
+    }
+
+    /// La luz de la derecha, solo cuando algo pide atención: Claude te espera, un agente avisa (o su detalle está
+    /// abierto), hay una reunión en la próxima hora, el Mac no está bien. Si todo está en calma, no hay luz.
+    private func tonoPestana(_ p: EstadoIsla.Pestana) -> Tono? {
+        switch p {
+        case .agentes:
+            if !claude.esperando.isEmpty { return .claude }
+            if let a = agentes.agentes.first(where: { $0.estado == .caido || $0.estado == .alerta }) { return Tono.agente(a.estado) }
+            if let nombre = estado.agenteAbierto, let a = agentes.agentes.first(where: { $0.nombre == nombre }) { return Tono.agente(a.estado) }
+            return nil
+        case .agenda:
+            return agenda.eventos.first { $0.fin > Date() && $0.inicio.timeIntervalSinceNow < 3600 }.map { Tono.de($0.color) }
+        case .mac:
+            let g = salud.diagnostico.gravedad
+            return g == .bien ? nil : Tono.gravedad(g)
+        }
     }
 
     private func elegir(_ p: EstadoIsla.Pestana) {
@@ -794,7 +815,7 @@ private struct Expandida: View {
                         HStack(spacing: 6) {
                             Text(etiquetaLlamada)
                                 .font(.system(size: 10, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.6))
+                                .foregroundStyle(Halo.texto2)
                                 .lineLimit(1)
                             if let desde = privacidad.desde { Cronometro(desde: desde) }
                             PuntoPrivacidad(camara: privacidad.camara)
@@ -813,10 +834,10 @@ private struct Expandida: View {
                     .frame(maxHeight: .infinity, alignment: .center)
                 VStack(alignment: .leading, spacing: 9) {
                     HStack(spacing: 4) {
-                        Pildora(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
-                                activa: actual == .agentes) { elegir(.agentes) }
-                        Pildora(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { elegir(.agenda) }
-                        Pildora(titulo: "Mac", cuenta: 0, punto: salud.diagnostico.gravedad.color, activa: actual == .mac) {
+                        PildoraHalo(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
+                                    activa: actual == .agentes) { elegir(.agentes) }
+                        PildoraHalo(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { elegir(.agenda) }
+                        PildoraHalo(titulo: "Mac", punto: Tono.gravedad(salud.diagnostico.gravedad).base, activa: actual == .mac) {
                             elegir(.mac)
                         }
                         Spacer(minLength: 4)
@@ -843,7 +864,12 @@ private struct Expandida: View {
             .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background { FondoArte(imagen: musica.hayPista ? musica.caratula : nil, forma: FormaIsla(radio: 34), alcance: 0.6) }
+        .background {  // la música tiñe el borde de abajo a la izquierda; la pestaña, a la derecha
+            ZStack {
+                if musica.hayPista { LuzBorde(tono: Tono.de(musica.acento), fuerza: 0.5, alto: 0.6, centro: 0.2, ancho: 0.48) }
+                if let tono = tonoPestana(actual) { LuzBorde(tono: tono, fuerza: 0.26, alto: 0.5, centro: 0.74, ancho: 0.5) }
+            }
+        }
         .onAppear {
             claude.actualizarUso()
             claude.vigilarActividad(true)
@@ -869,7 +895,7 @@ private struct ActividadDia: View {
         HStack(alignment: .bottom, spacing: 1.5) {
             ForEach(horas, id: \.self) { h in
                 Capsule()
-                    .fill(h == ahora ? Color.claude : .white.opacity(0.32))
+                    .fill(h == ahora ? Tono.claude.base : .white.opacity(0.3))
                     .frame(width: 2.5, height: max(2.5, 14 * CGFloat(porHora[h]) / CGFloat(maximo)))
             }
         }
@@ -894,10 +920,10 @@ private struct ResumenMac: View {
         VStack(alignment: .leading, spacing: 12) {
             Button(action: abrir) {
                 HStack(spacing: 10) {
-                    PuntoBrillante(color: d.gravedad.color, lado: 8)
+                    PuntoBrillante(color: Tono.gravedad(d.gravedad).base, lado: 8)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text(d.titulo).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                        Text(d.frase).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                        Text(d.titulo).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                        Text(d.frase).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Image(systemName: "arrow.up.forward.app")
@@ -921,7 +947,7 @@ private struct ResumenMac: View {
             }
             if let top = salud.consumidores.max(by: { $0.memoria < $1.memoria }) {
                 Text("Lo que más consume: \(top.nombre) · \(Medida.bytes(top.memoria))")
-                    .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+                    .font(Halo.detalle).foregroundStyle(Halo.texto3).lineLimit(1)
             }
         }
     }
@@ -937,41 +963,13 @@ private struct DialMac: View {
 
     var body: some View {
         VStack(spacing: 7) {
-            Dial(lado: 62, valor: valor, colores: Paleta.gravedad(gravedad), marcas: 36, anillo: 5,
-                 brillo: gravedad == .mal ? 1 : (gravedad == .atento ? 0.75 : 0.42)) {
+            Dial(lado: 62, valor: valor, colores: Tono.gravedad(gravedad).gradiente, marcas: 36, anillo: 5,
+                 brillo: gravedad == .mal ? 0.95 : (gravedad == .atento ? 0.7 : 0.32)) {
                 NumeroFino(texto: numero, unidad: unidad, tamano: 17, peso: .light)
             }
-            Text(titulo).font(.system(size: 9.5, weight: .medium)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+            Rotulo(titulo, color: Halo.texto3)
         }
         .frame(maxWidth: .infinity)
-    }
-}
-
-/// Pestaña en píldora: activa en blanco translúcido, con cuántos elementos tiene.
-private struct Pildora: View {
-    let titulo: String
-    let cuenta: Int
-    var punto: Color?
-    let activa: Bool
-    let accion: () -> Void
-
-    var body: some View {
-        Button(action: accion) {
-            HStack(spacing: 5) {
-                if let punto { PuntoBrillante(color: punto, lado: 6) }
-                Text(titulo).font(.system(size: 11, weight: .semibold))
-                if cuenta > 0 {
-                    Text("\(cuenta)").font(.system(size: 10, weight: .bold, design: .rounded)).foregroundStyle(.white.opacity(0.5))
-                }
-            }
-            .foregroundStyle(.white.opacity(activa ? 1 : 0.5))
-            .fixedSize()
-            .padding(.horizontal, 10)
-            .frame(height: 22)
-            .background(Capsule().fill(.white.opacity(activa ? 0.16 : 0)))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -1013,9 +1011,9 @@ private struct ListaAgentes: View {
     var body: some View {
         if elementos.isEmpty {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Sin sesiones abiertas").font(.system(size: 13)).foregroundStyle(.white.opacity(0.65))
+                Text("Sin sesiones abiertas").font(.system(size: 13)).foregroundStyle(Halo.texto2)
                 Text("Aquí aparecen tus sesiones de Claude Code y los agentes remotos que configures.")
-                    .font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.4))
+                    .font(Halo.detalle).foregroundStyle(Halo.texto3)
             }
         } else if simulado {
             Color.clear.overlay(alignment: .top) { lista }.clipped().mask(desvanecido)
@@ -1030,7 +1028,7 @@ private struct ListaAgentes: View {
             ForEach(elementos) { e in
                 switch e {
                 case .sesion(let s): FilaSesion(sesion: s)
-                case .agente(let a): TarjetaAgente(agente: a) { abrir(a.nombre) }
+                case .agente(let a): FilaAgente(agente: a) { abrir(a.nombre) }
                 }
             }
         }
@@ -1052,29 +1050,29 @@ private struct FilaSesion: View {
         let espera = sesion.estado == .esperando
         Button { SesionesClaude.abrir(sesion) } label: {
             HStack(spacing: 10) {
-                ZStack {
-                    if espera { Resplandor(colores: Paleta.claude, difuso: 5).frame(width: 30, height: 30).opacity(0.8) }
-                    EstadoSesion(estado: sesion.estado).frame(width: 16, height: 16)
+                Group {
+                    if espera { Insignia(icono: .estrella, tono: .claude, lado: 26) } else { EstadoSesion(estado: sesion.estado).frame(width: 15, height: 15) }
                 }
-                .frame(width: 20, height: 20)
+                .frame(width: 26, height: 26)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(sesion.nombre).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
+                    Text(sesion.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
                     Text(Tiempo.sesion(sesion))
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(espera ? Color.claude : .white.opacity(0.45))
+                        .font(Halo.detalle)
+                        .foregroundStyle(espera ? Tono.claude.claro : Halo.texto3)
                         .lineLimit(espera ? 2 : 1)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 4)
-                if sesion.contexto > 0 { Contexto(tokens: sesion.contexto) }
-            }
-            .padding(.horizontal, 9)
-            .padding(.vertical, espera ? 6 : 3)
-            .background {
                 if espera {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.claude.opacity(0.11))
-                        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.claude.opacity(0.28), lineWidth: 0.6))
+                    BotonHalo(titulo: "Responder", tono: .claude, alto: 26) { SesionesClaude.abrir(sesion) }
+                } else if sesion.contexto > 0 {
+                    Contexto(tokens: sesion.contexto)
                 }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, espera ? 7 : 3)
+            .background {
+                if espera { Color.clear.tarjetaHalo(radio: 14, activa: true, tono: .claude) }
             }
             .contentShape(Rectangle())
         }
@@ -1089,7 +1087,7 @@ private struct Contexto: View {
 
     var body: some View {
         let alto = tokens > 600_000
-        let color = alto ? Gravedad.atento.color : Color.white.opacity(0.5)
+        let color = alto ? Tono.ambar.base : Color.white.opacity(0.5)
         HStack(spacing: 4) {
             ZStack {
                 Circle().stroke(.white.opacity(0.12), lineWidth: 1.6)
@@ -1099,161 +1097,11 @@ private struct Contexto: View {
             }
             .frame(width: 10, height: 10)
             Text(Tiempo.tokens(tokens))
-                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(alto ? 0.8 : 0.35))
+                .font(.system(size: 10, weight: .medium)).monospacedDigit()
+                .foregroundStyle(alto ? Tono.ambar.claro : Halo.texto3)
         }
         .fixedSize()
         .help("Contexto de esta conversación. Si pasa de ~600 k conviene abrir una nueva.")
-    }
-}
-
-/// Un agente remoto: anillo con resplandor (verde, ámbar o rojo) que se llena con las tareas sanas, su resumen,
-/// las alertas destacadas y sus tareas con "hace X" y la próxima.
-private struct TarjetaAgente: View {
-    let agente: AgentesRemotos.Agente
-    let abrir: () -> Void
-
-    /// Primero lo que falló, luego lo que corre, luego por la próxima ejecución; las pausadas al final.
-    private var tareas: [AgentesRemotos.Tarea] {
-        func orden(_ t: AgentesRemotos.Tarea) -> Int {
-            switch t.estado { case "error": return 0; case "corriendo": return 1; case "pausada": return 3; default: return 2 }
-        }
-        return agente.tareas.sorted {
-            (orden($0), $0.proxima ?? .distantFuture) < (orden($1), $1.proxima ?? .distantFuture)
-        }
-    }
-
-    private var sanas: Double {
-        let activas = agente.tareas.filter { $0.estado != "pausada" }
-        guard !activas.isEmpty else { return agente.estado == .ok ? 1 : 0.5 }
-        return Double(activas.filter { $0.estado != "error" }.count) / Double(activas.count)
-    }
-
-    private var etiqueta: String {
-        switch agente.estado {
-        case .ok: return "En línea"
-        case .alerta: return "Alerta"
-        case .caido: return "Caído"
-        case .desconocido: return "Sin datos"
-        }
-    }
-
-    var body: some View {
-        Button(action: abrir) { tarjeta.contentShape(Rectangle()) }
-            .buttonStyle(.plain)
-            .help("Ver el día de \(agente.nombre)")
-    }
-
-    private var tarjeta: some View {
-        let colores = Paleta.agente(agente.estado)
-        let color = colores[1]
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Dial(lado: 30, valor: sanas, colores: colores, marcas: 24, arco: 360, anillo: 3.5, brillo: 0.9, destello: false) {
-                    Image(systemName: "server.rack").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
-                }
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 7) {
-                        Text(agente.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                        Rotulo(etiqueta, color: color)
-                    }
-                    if let error = agente.error {
-                        Text("No se pudo leer: " + error).font(.system(size: 10.5)).foregroundStyle(Gravedad.atento.color).lineLimit(1)
-                    } else if !agente.resumen.isEmpty {
-                        Text(agente.resumen).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 4)
-                if let actualizado = agente.actualizado {
-                    Text(Tiempo.hace(actualizado))
-                        .font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.white.opacity(0.3)).fixedSize()
-                        .help("Última lectura del agente")
-                }
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.3))
-            }
-            ForEach(Array(agente.alertas.prefix(2).enumerated()), id: \.offset) { _, alerta in
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9.5)).foregroundStyle(color)
-                    Text(alerta).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.92))
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(color.opacity(0.15)))
-            }
-            if agente.alertas.count > 2 {
-                Text("+\(agente.alertas.count - 2) alertas más").font(.system(size: 10)).foregroundStyle(color.opacity(0.9))
-            }
-            if !tareas.isEmpty {
-                VStack(spacing: 3) {
-                    ForEach(tareas.prefix(4)) { TareaTarjeta(tarea: $0) }
-                }
-                if tareas.count > 4 {
-                    Text("+\(tareas.count - 4) tareas más").font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
-                }
-            }
-        }
-        .padding(9)
-        .background {
-            ZStack(alignment: .topLeading) {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(.white.opacity(0.05))
-                Resplandor(colores: colores, difuso: 16).frame(width: 96, height: 96).offset(x: -30, y: -34).opacity(0.5)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(.white.opacity(0.08), lineWidth: 0.6))
-        }
-    }
-}
-
-/// Una tarea programada de un agente remoto en su tarjeta: punto de estado, nombre, cuándo corrió y cuándo vuelve
-/// a correr.
-private struct TareaTarjeta: View {
-    let tarea: AgentesRemotos.Tarea
-
-    private var color: Color {
-        switch tarea.estado {
-        case "error": return Gravedad.mal.color
-        case "corriendo": return Paleta.volumen[0]
-        case "pausada": return Color(white: 0.45)
-        default: return Gravedad.bien.color
-        }
-    }
-
-    private var ultima: String {
-        switch tarea.estado {
-        case "error": return "falló" + (tarea.ultima.map { " " + Tiempo.hace($0) } ?? "")
-        case "corriendo": return "corriendo"
-        case "pausada": return "pausada"
-        default: return tarea.ultima.map(Tiempo.hace) ?? ""
-        }
-    }
-
-    var body: some View {
-        HStack(spacing: 7) {
-            if tarea.estado == "pausada" {
-                Circle().strokeBorder(color, lineWidth: 1).frame(width: 5, height: 5)
-            } else {
-                PuntoBrillante(color: color, lado: 5)
-            }
-            Text(tarea.nombre)
-                .font(.system(size: 10.5, weight: .medium, design: .monospaced))
-                .foregroundStyle(.white.opacity(tarea.estado == "pausada" ? 0.4 : 0.82))
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 6)
-            Text(ultima)
-                .font(.system(size: 10))
-                .foregroundStyle(tarea.estado == "error" ? color : .white.opacity(0.42))
-                .lineLimit(1)
-                .frame(width: 74, alignment: .trailing)
-            Text(tarea.proxima.map { "→ " + Tiempo.hora($0) } ?? "")
-                .font(.system(size: 10))
-                .foregroundStyle(.white.opacity(0.62))
-                .lineLimit(1)
-                .frame(width: 114, alignment: .trailing)
-        }
-        .help(tarea.detalle.isEmpty ? tarea.nombre : tarea.nombre + " · " + tarea.detalle)
     }
 }
 
@@ -1265,11 +1113,11 @@ private struct EstadoSesion: View {
     var body: some View {
         switch estado {
         case .trabajando:
-            EstrellaClaude().fill(Color.claude)
+            EstrellaClaude().fill(Tono.claude.base)
                 .rotationEffect(.degrees(giro ? 360 : 0))
                 .onAppear { withAnimation(.linear(duration: 6).repeatForever(autoreverses: false)) { giro = true } }
         case .esperando:
-            PuntoBrillante(color: Color.claude, lado: 8)
+            PuntoBrillante(color: Tono.claude.base, lado: 8)
         case .lista:
             Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.4))
         }
@@ -1322,11 +1170,11 @@ private struct Reproductor: View {
                 HStack(spacing: 12) {
                     Caratula(imagen: musica.caratula, lado: 58, radio: 13, resplandor: true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                        Text(musica.artista).font(.system(size: 12)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
+                        Text(musica.titulo).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                        Text(musica.artista).font(.system(size: 12)).foregroundStyle(Halo.texto2).lineLimit(1)
                     }
                     Spacer(minLength: 4)
-                    Ecualizador(color: musica.acento, activo: musica.sonando)
+                    Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
                 }
                 Progreso(musica: musica)
                 HStack(spacing: 0) {
@@ -1342,26 +1190,10 @@ private struct Reproductor: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 EtiquetaIsla(titulo: "Música")
-                Text("Nada sonando todavía").font(.system(size: 13)).foregroundStyle(.white.opacity(0.7))
+                Text("Nada sonando todavía").font(.system(size: 13)).foregroundStyle(Halo.texto2)
                 HStack(spacing: 8) {
-                    Button { musica.alternar() } label: {
-                        Label("Reanudar", systemImage: "play.fill")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 12)
-                            .frame(height: 28)
-                            .background(Capsule().fill(.white))
-                    }
-                    .buttonStyle(.plain)
-                    Button { musica.abrirSpotify() } label: {
-                        Text("Abrir Spotify")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .frame(height: 28)
-                            .background(Capsule().fill(.white.opacity(0.14)))
-                    }
-                    .buttonStyle(.plain)
+                    BotonHalo(titulo: "Reanudar", icono: "play.fill", alto: 28) { musica.alternar() }
+                    BotonHalo(titulo: "Abrir Spotify", secundario: true, alto: 28) { musica.abrirSpotify() }
                 }
             }
         }
@@ -1390,20 +1222,21 @@ private struct Progreso: View {
                         }
                         .stroke(.white.opacity(0.3), style: StrokeStyle(lineWidth: 1.4, lineCap: .round, dash: [0.01, 4]))
                         Capsule()
-                            .fill(LinearGradient(colors: [musica.acento.opacity(0.5), .white], startPoint: .leading, endPoint: .trailing))
-                            .frame(width: x, height: 2)
-                        Circle().fill(.white).frame(width: 7, height: 7)
-                            .shadow(color: musica.acento, radius: 4)
-                            .offset(x: x - 3.5)
+                            .fill(LinearGradient(colors: [Tono.de(musica.acento).base, Tono.de(musica.acento).claro], startPoint: .leading, endPoint: .trailing))
+                            .frame(width: x, height: 3)
+                            .shadow(color: Tono.de(musica.acento).base.opacity(0.8), radius: 3)
+                        Circle().fill(.white).frame(width: 9, height: 9)
+                            .shadow(color: Tono.de(musica.acento).base, radius: 5)
+                            .offset(x: x - 4.5)
                     }
                     .frame(height: geo.size.height)
                 }
                 .frame(height: 8)
                 Text("-" + Tiempo.reloj(max(0, musica.duracion - pos)))
             }
-            .font(.system(size: 10, weight: .medium, design: .rounded))
+            .font(.system(size: 10, weight: .medium))
             .monospacedDigit()
-            .foregroundStyle(.white.opacity(0.5))
+            .foregroundStyle(Halo.texto3)
         }
     }
 }
@@ -1448,8 +1281,8 @@ private struct ListaAgenda: View {
                     } else {
                         VStack(alignment: .leading, spacing: 3) {
                             Rotulo("Agenda")
-                            Text("Nada más en las próximas horas").font(.system(size: 13.5, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.75))
+                            Text("Nada más en las próximas horas").font(.system(size: 20, weight: .thin))
+                                .foregroundStyle(Halo.texto)
                         }
                     }
                     Spacer(minLength: 10)
@@ -1482,7 +1315,7 @@ private struct Protagonista: View {
         let c = cuenta
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 7) {
-                Rotulo(c.rotulo, color: evento.color)
+                Rotulo(c.rotulo, color: Tono.de(evento.color).claro)
                 HStack(alignment: .lastTextBaseline, spacing: 5) {
                     NumeroPuntos(texto: c.numero, punto: 3.3, paso: 4.6, color: .white)
                     if !c.unidad.isEmpty {
@@ -1493,9 +1326,9 @@ private struct Protagonista: View {
             .fixedSize()
             Rectangle().fill(.white.opacity(0.12)).frame(width: 0.5, height: 42)
             VStack(alignment: .leading, spacing: 3) {
-                Text(evento.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                Text(evento.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto)
                     .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-                Text(Tiempo.franja(evento, conEstado: false) + (evento.enlace.flatMap { $0.host }.map { " · " + Tiempo.servicio($0) } ?? "")).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).lineLimit(1)
+                Text(Tiempo.franja(evento, conEstado: false) + (evento.enlace.flatMap { $0.host }.map { " · " + Tiempo.servicio($0) } ?? "")).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
             }
             Spacer(minLength: 4)
             if evento.sePuedeUnir, let enlace = evento.enlace {
@@ -1550,9 +1383,10 @@ private struct LineaDia: View {
                     let alto: CGFloat = principal ? 6 : 4
                     let y: CGFloat = item.carril == 0 ? 17 : 24
                     Capsule()
-                        .fill(e.color.opacity(principal ? 1 : 0.7))
+                        .fill(LinearGradient(colors: [Tono.de(e.color).base, Tono.de(e.color).claro], startPoint: .leading, endPoint: .trailing))
+                        .opacity(principal ? 1 : 0.6)
                         .frame(width: max(4, x1 - x0), height: alto)
-                        .shadow(color: e.color.opacity(principal ? 0.9 : 0), radius: 5)
+                        .shadow(color: Tono.de(e.color).base.opacity(principal ? 0.9 : 0.3), radius: principal ? 6 : 3)
                         .offset(x: x0, y: y - alto / 2)
                     let espacio = (item.siguiente.map { x($0) } ?? w) - x0 - 6
                     if item.carril == 0 && espacio > 30 {
@@ -1602,10 +1436,7 @@ private struct EtiquetaIsla: View {
     let titulo: String
 
     var body: some View {
-        Text(titulo.uppercased())
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .tracking(1.3)
-            .foregroundStyle(.white.opacity(0.42))
+        Rotulo(titulo, color: Halo.texto3)
     }
 }
 

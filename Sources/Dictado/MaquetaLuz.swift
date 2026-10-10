@@ -635,7 +635,7 @@ private struct LReproductor: View {
 }
 
 /// Cuánto corrió hoy un agente: corridas de hoy, las que faltan hoy y la próxima.
-private struct DiaAgente {
+private struct DiaAgenteLuz {
     let corridas: [AgentesRemotos.Tarea]
     let faltan: Int
     let proxima: AgentesRemotos.Tarea?
@@ -708,7 +708,7 @@ private struct LAgentes: View {
     }
 
     private func hermes(_ a: AgentesRemotos.Agente) -> some View {
-        let dia = DiaAgente(a)
+        let dia = DiaAgenteLuz(a)
         let mal = !a.alertas.isEmpty || a.estado == .caido
         let c = mal ? (a.estado == .caido ? L.rojo : L.ambar) : L.verde
         let detalle = a.alertas.first ?? a.error ?? ("\(dia.corridas.count) de \(dia.total) hoy"
@@ -736,7 +736,7 @@ private extension Optional where Wrapped == String {
 private struct LHermes: View {
     var body: some View {
         if let a = maqueta.agente {
-            let dia = DiaAgente(a)
+            let dia = DiaAgenteLuz(a)
             VStack(alignment: .leading, spacing: 9) {
                 HStack(spacing: 8) {
                     Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.45))
