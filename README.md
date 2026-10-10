@@ -10,7 +10,7 @@ Una sola app nativa de macOS, liviana (unos 40 MB de memoria y 0 % de procesador
 
 Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni tus archivos a ningún servidor.
 
-![La isla abierta: música con los colores de la carátula, la pestaña Agentes (Claude esperándote y un agente remoto con sus tareas) y la llamada en curso](docs/isla-abierta.jpg)
+![La isla abierta: música con la luz de la carátula, la pestaña Agentes (Claude esperándote, con Responder) y la llamada en curso](docs/isla-abierta.jpg)
 
 > **Instalación en un paso:** abre [Claude Code](https://claude.com/claude-code) en esta carpeta y escribe *«instala y configura Dictado»*. Claude sigue las instrucciones de [`CLAUDE.md`](CLAUDE.md), te hace tres preguntas y te guía con los permisos.
 
@@ -21,7 +21,7 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | | Cómo se usa | Reemplaza a |
 |---|---|---|
 | **Dictado** | Mantén **⌥Espacio**, habla y suelta: el texto se pega donde está el cursor (en cualquier app). **⌥⇧Espacio** guarda la idea como nota en tu carpeta de ideas. **Esc** cancela. | Handy, superwhisper, MacWhisper |
-| **Portapapeles** | **⌘⌥V**. Historial con búsqueda, filtros, varios elementos a la vez (⌘clic), arrastrar a otras apps, cuadrícula de imágenes, pegado con o sin formato, ⌘1–9. Cada tipo tiene su color (texto violeta, enlace azul, archivo durazno; la imagen, el suyo) y la vista previa muestra sus datos: palabras y caracteres, tamaño, proporción y paleta de una imagen, ruta y parámetros de un enlace, peso de los archivos. Ignora contraseñas. | Raycast, Paste, Maccy |
+| **Portapapeles** | **⌘⌥V**. Historial con búsqueda, filtros, varios elementos a la vez (⌘clic), arrastrar a otras apps, cuadrícula de imágenes, pegado con o sin formato, ⌘1–9. Cada tipo lleva un punto de color discreto y la vista previa muestra sus datos: palabras y caracteres, tamaño, proporción y paleta de una imagen, ruta y parámetros de un enlace, peso de los archivos. Ignora contraseñas. | Raycast, Paste, Maccy |
 | **Captura** | **⌘↩**. Área, ventana, pantalla, texto de una zona (OCR), grabación y temporizador. Destino: portapapeles, Escritorio, Descargas o una carpeta. | CleanShot X (lo básico), TextSniper |
 | **Isla del notch** | Siempre visible. Al pasar el mouse se abre. | Atoll, NotchNook, Boring Notch |
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
@@ -37,19 +37,19 @@ Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Li
 
 ![Todas las vistas de la isla](docs/isla.jpg)
 
-La isla habla un mismo idioma visual: diales con un anillo de marcas finas que se enciende, resplandores de color según lo que pasa (azul y violeta el volumen, ámbar el brillo, verde, ámbar o rojo la salud y los agentes) y números grandes y finos. En reposo no anima nada (0 % de procesador); solo se mueve con la isla abierta o en un aviso pasajero.
+Toda la app habla un mismo idioma visual, **Halo**: negro de fondo, diales de marcas finas que se encienden, cifras grandes y delgadas, y una luz de color que nace del borde de abajo solo cuando algo pide atención (naranja si Claude te espera, ámbar o rojo si un agente avisa, el color de la carátula con la música). Un tono por momento; lo demás, blanco. En reposo no anima nada (0 % de procesador); las animaciones solo acompañan un cambio. Reglas, piezas y movimiento en [`docs/DISENO.md`](docs/DISENO.md) (y el [video de las animaciones](docs/halo-animaciones.mp4)).
 
 - **Música (Spotify):** carátula, progreso y controles, con un degradado sacado de la carátula. Cuando cambia la canción, aparece "Ahora suena".
 - **Agenda:** la próxima reunión como protagonista, con la cuenta regresiva en números de puntos y el botón **Unirse**, y el resto del día en una línea de tiempo con la hora actual marcada. Lee el Calendario de macOS (también Google si agregas la cuenta en Ajustes → Cuentas de internet). A los 5 minutos de una reunión sale un aviso con la cuenta regresiva y el botón para unirte al Meet, Zoom o Teams del evento.
 - **Llamadas:** cuando una app usa el micrófono o la cámara, la isla muestra el ícono de la app, un cronómetro verde y el punto verde (cámara) o naranja (micrófono), como en el iPhone.
 - **Agentes:** en una sola pestaña, tus sesiones de Claude Code y tus [agentes remotos](#agentes-remotos), primero lo que necesita atención.
   - Por cada sesión de Claude: qué está haciendo ("Editando App.swift · 4 min"), qué te pide (permiso o pregunta, resaltado en naranja) y el contexto del chat. El clic abre justo esa sesión. Arriba, los tokens del día por hora.
-  - Por cada agente remoto: su estado de un vistazo (anillo verde, ámbar o rojo), su resumen, las alertas destacadas y sus tareas programadas con "hace 2 h" y la próxima ejecución. Al tocarlo se abre su día: una línea de medianoche a medianoche con lo que ya corrió y lo que falta, y las tareas que importan (la que falló, la que corre, la última y la próxima).
+  - Por cada agente remoto, una fila como la de una sesión: un dial pequeño (verde, ámbar o rojo), cómo va el día ("5 de 6 hoy · próxima 3:00 a. m.") o la alerta, y una cápsula con lo que ya corrió. Al tocarla se abre su día: lo que corrió como marcas sobre la regla de medianoche a medianoche y las tareas que importan (la que falló, la que corre, la última y la próxima).
   - Avisos: cuando una sesión te necesita o termina, y cuando un agente remoto tiene una alerta nueva (con **Ver**, que abre el día de ese agente).
 
   De Claude se lee `~/.claude` en solo lectura.
 - **Mac:** cuatro diales (procesador, memoria, gráficos y disco) cuyo resplandor sube con la gravedad, el titular del diagnóstico y el ícono ↗ que abre Salud del Mac.
-- **Volumen y brillo:** las teclas del teclado muestran un dial en el notch en lugar del cuadro de macOS, con el número grande y, en el volumen, a dónde va el sonido (por ejemplo, tus AirPods). Al mantener la tecla el dial se mueve sin volver a aparecer; en silencio se apaga y deja marcado el volumen guardado.
+- **Volumen y brillo:** las teclas del teclado muestran un dial pequeño en el notch en lugar del cuadro de macOS, con el número grande y, en el volumen, a dónde va el sonido (por ejemplo, tus AirPods). Al mantener la tecla el dial se mueve sin volver a aparecer; en silencio se apaga y deja marcado el volumen guardado.
 - **Cargador, dictado en vivo y avisos de salud** del Mac.
 
 ### Agentes remotos
@@ -96,7 +96,7 @@ El comando debe imprimir algo así (todo es opcional salvo `estado`):
 
 ### Portapapeles, captura y dictado
 
-![Portapapeles: el dial cuenta los recortes por tipo y la vista previa muestra el texto con sus datos](docs/portapapeles.jpg)
+![Portapapeles en vidrio oscuro: el dial cuenta los recortes y la vista previa muestra el texto con sus datos](docs/portapapeles.jpg)
 
 ![Panel de captura](docs/captura.jpg)
 
