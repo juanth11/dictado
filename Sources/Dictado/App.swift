@@ -93,6 +93,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             registrarPulido: { [weak self] pulir in self?.pulidor = pulir })
         // ↓ módulos
         _ = contexto
+        modulos.append(TeclaHyper(contexto))
+        modulos.append(VentanasTeclado(contexto))
+        modulos.append(BuscadorVentanas(contexto))
         // ↑ módulos
     }
 

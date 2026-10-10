@@ -25,6 +25,11 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Captura** | **⌘↩**. Área, ventana, pantalla, texto de una zona (OCR), grabación y temporizador. Destino: portapapeles, Escritorio, Descargas o una carpeta. | CleanShot X (lo básico), TextSniper |
 | **Isla del notch** | Siempre visible. Al pasar el mouse se abre. | Atoll, NotchNook, Boring Notch |
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
+| **Tecla hyper** | Mantén **Bloq Mayús** = ⌃⌥⌘⇧, para atajos que no chocan con nada; sola es **Esc**. Hyper + V portapapeles, + C captura, + M Salud del Mac, + U unirse a la reunión. | Hyperkey, Karabiner (lo básico) |
+| **Ventanas por teclado** | **Hyper + ←/→**: mitad, tercio y dos tercios. **↑** casi maximizar, **↓** restaurar, **N** otra pantalla, **↩** centrar. | Rectangle, Magnet |
+| **Buscador de ventanas** | **Hyper + Espacio**: escribe parte del título o de la app y salta a la ventana, aunque esté minimizada. | Contexts, AltTab |
+
+La tecla hyper, las ventanas por teclado y el buscador de ventanas son opcionales: se apagan en el menú **Funciones** y están explicadas en [`docs/FUNCIONES.md`](docs/FUNCIONES.md).
 
 ### La isla
 
@@ -142,6 +147,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `Privacidad.swift`, `Niveles.swift` | Cámara y micrófono en uso; volumen y brillo |
 | `Salud.swift`, `VistaSalud.swift` | Medidor, escáner de limpieza y bitácora para deshacer |
 | `HUD.swift`, `Estilos*.swift`, `Diseno.swift` | Indicador de dictado y lenguaje visual |
+| `TeclaHyper.swift`, `Ventanas.swift`, `BuscadorVentanas.swift`, `VistaBuscador.swift` | Tecla hyper, ventanas por teclado y buscador de ventanas (pruebas en `PruebasTeclado.swift`) |
 | `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--vista-isla salida.png`) |
 
 ## Desinstalar
