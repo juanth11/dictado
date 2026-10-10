@@ -129,7 +129,7 @@ struct VistaHUD: View {
             Spacer(minLength: 0)
             if !estado.texto.isEmpty || estado.nota != nil {
                 Tarjeta(estado: estado, simulado: tiempoFijo != nil)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .transition(.blurReplace)  // entra con escala y desenfoque, como los avisos de Halo
             }
             Visual(estado: estado, t: t)
                 .frame(width: 380, height: 118)
@@ -137,47 +137,42 @@ struct VistaHUD: View {
                 .opacity(e)
         }
         .frame(width: Self.ancho, height: Self.alto)
-        .animation(.spring(duration: 0.35), value: estado.texto.isEmpty)
+        .animation(Halo.entrada, value: estado.texto.isEmpty)
     }
 }
 
-/// Texto minimalista sobre vidrio claro: letra oscura del sistema, sin colores.
+/// Texto del HUD en Halo: vidrio oscuro con letra blanca del sistema y la nota como rótulo en mayúsculas pequeñas.
+/// Sin colores: el color lo pone el visual (Prisma) debajo. En vivo, el texto va atenuado; el resultado, pleno.
 struct Tarjeta: View {
     let estado: EstadoHUD
     let simulado: Bool
 
     var body: some View {
-        let forma = RoundedRectangle(cornerRadius: 16, style: .continuous)
-        let contenido = VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 4) {
             if let nota = estado.nota {
-                Label(nota, systemImage: estado.icono ?? "checkmark")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Image(systemName: estado.icono ?? "checkmark").font(.system(size: 10, weight: .semibold))
+                    Text(nota.uppercased()).font(.system(size: 9.5, weight: .semibold)).tracking(1.0).lineLimit(1)
+                }
+                .foregroundStyle(Halo.texto2)
             }
             if !estado.texto.isEmpty {
                 Text(estado.texto)
                     .font(.system(size: 13, weight: estado.fase == .resultado ? .medium : .regular))
-                    .foregroundStyle(estado.fase == .resultado ? .primary : .secondary)
+                    .foregroundStyle(estado.fase == .resultado ? Halo.texto : Halo.texto2)
+                    .lineSpacing(2)
                     .lineLimit(2)
                     .truncationMode(.head)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
         .frame(maxWidth: 340, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
-
-        Group {
-            if simulado {  // el render fuera de pantalla no tiene escritorio detrás para el vidrio
-                contenido
-                    .background(forma.fill(.white.opacity(0.86)))
-                    .overlay(forma.stroke(.white.opacity(0.9), lineWidth: 0.6))
-            } else {
-                contenido.glassEffect(.regular, in: forma)
-            }
-        }
-        .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
-        .environment(\.colorScheme, .light)
+        // En los renders no hay escritorio que desenfocar detrás: un velo extra suple el desenfoque del vidrio.
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(.black.opacity(simulado ? 0.16 : 0)))
+        .modifier(PanelHalo(radio: 16, simulado: simulado))  // en la app, Liquid Glass oscuro
+        .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
     }
 }
 

@@ -2,8 +2,9 @@ import AppKit
 import SwiftUI
 import Translation
 
-/// Panel de acciones sobre el texto seleccionado (Hyper+T), en vidrio claro: extracto del texto, seis acciones
-/// y, debajo, el resultado con Reemplazar y Copiar. Crece hacia abajo según lo que muestre.
+/// Panel de acciones sobre el texto seleccionado (Hyper+T) en Halo: extracto del texto, seis acciones (la elegida
+/// en blanco sólido) y, debajo, el resultado en una tarjeta con la luz del tono de la acción, Reemplazar (el botón
+/// principal) y Copiar. Crece hacia abajo según lo que muestre.
 struct VistaAcciones: View {
     static let ancho: CGFloat = 460
 
@@ -12,17 +13,17 @@ struct VistaAcciones: View {
     var simulado = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             cabecera
             Text(estado.texto)
                 .font(.system(size: 13))
-                .foregroundStyle(Diseno.tinta.opacity(0.78))
+                .foregroundStyle(Halo.texto2)
+                .lineSpacing(1.5)
                 .lineLimit(3)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.42)))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.white.opacity(0.6), lineWidth: 0.6))
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .tarjetaHalo(radio: Halo.radioTarjeta)
             Grid(horizontalSpacing: 8, verticalSpacing: 8) {
                 ForEach([Array(AccionTexto.allCases.prefix(3)), Array(AccionTexto.allCases.suffix(3))], id: \.first) { fila in
                     GridRow {
@@ -32,15 +33,15 @@ struct VistaAcciones: View {
                     }
                 }
             }
+            .animation(Halo.cambio, value: estado.accion)
             resultado
-            Text(estado.resultado == nil ? "1–6 elige · Esc cierra" : "1–6 elige · ↩ reemplaza · ⌘C copia · Esc cierra")
-                .font(.system(size: 10, weight: .medium, design: .monospaced))
-                .foregroundStyle(Diseno.tintaTenue)
+            Rotulo(estado.resultado == nil ? "1–6 elige · esc cierra" : "1–6 elige · ↩ reemplaza · ⌘C copia · esc cierra",
+                   color: Halo.texto3)
                 .frame(maxWidth: .infinity)
         }
-        .padding(18)
+        .padding(16)
         .frame(width: Self.ancho)
-        .modifier(PanelVidrio(radio: 26, simulado: simulado))
+        .modifier(PanelVidrio(radio: Halo.radioPanel, simulado: simulado))
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { control?.ajustarAlto($0) }
         .modifier(TareaTraduccion(estado: estado, control: control, activa: !simulado))
@@ -56,46 +57,57 @@ struct VistaAcciones: View {
     }
 
     @ViewBuilder private var resultado: some View {
+        let tono = estado.accion?.tono ?? .violeta
         if estado.cargando {
-            HStack(spacing: 10) {
+            HStack(spacing: 8) {
                 if !simulado { ProgressView().controlSize(.small) }  // ImageRenderer no dibuja vistas de AppKit
                 Text(estado.accion == .traducir ? "Traduciendo en el Mac…" : "Pensando en el Mac…")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Diseno.tintaSuave)
+                    .foregroundStyle(Halo.texto2)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(tarjeta(0.32))
+            .padding(16)
+            .tarjetaHalo(radio: 20)
+            .modifier(Aparece())
         } else if let aviso = estado.aviso {
             VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: estado.faltanIdiomas ? "arrow.down.circle" : "exclamationmark.circle")
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(aviso).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .top, spacing: 12) {
+                    Insignia(icono: .simbolo(estado.faltanIdiomas ? "arrow.down" : "exclamationmark"), tono: .ambar, lado: 24)
+                    Text(aviso).font(.system(size: 13)).foregroundStyle(Halo.texto)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.top, 4)
                 }
-                .foregroundStyle(Diseno.tinta.opacity(0.8))
                 if estado.faltanIdiomas {
                     HStack(spacing: 8) {
-                        BotonPildora(titulo: "Descargar", simbolo: "arrow.down", primario: true) { control?.descargarIdiomas() }
-                        BotonPildora(titulo: "Abrir Ajustes", simbolo: "gearshape") { control?.abrirAjustesIdiomas() }
+                        BotonHalo(titulo: "Descargar", icono: "arrow.down", alto: 32) { control?.descargarIdiomas() }
+                        BotonHalo(titulo: "Abrir Ajustes", icono: "gearshape", secundario: true, alto: 32) { control?.abrirAjustesIdiomas() }
                     }
+                    .padding(.leading, 36)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(tarjeta(0.32))
+            .padding(16)
+            .background(LuzBorde(tono: .ambar, fuerza: 0.18, alto: 0.8, centro: 0.15, ancho: 0.6))
+            .tarjetaHalo(radio: 20)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .modifier(Aparece())
         } else if let r = estado.resultado {
-            VStack(alignment: .leading, spacing: 10) {
-                EtiquetaSeccion(titulo: estado.detalle)
+            VStack(alignment: .leading, spacing: 12) {
+                Rotulo(estado.detalle, color: tono.claro)
                 textoResultado(r)
                 HStack(spacing: 8) {
-                    BotonPildora(titulo: "Reemplazar", teclas: "↩", simbolo: "arrow.uturn.backward", primario: true) { control?.reemplazar() }
-                    BotonPildora(titulo: "Copiar", teclas: "⌘C", simbolo: "doc.on.doc") { control?.copiar() }
+                    BotonHalo(titulo: "Reemplazar", icono: "arrow.uturn.backward", teclas: "↩", alto: 32) { control?.reemplazar() }
+                    BotonHalo(titulo: "Copiar", icono: "doc.on.doc", secundario: true, teclas: "⌘C", alto: 32) { control?.copiar() }
                 }
+                .padding(.top, 4)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(14)
-            .background(tarjeta(0.55))
+            .padding(16)
+            // la luz del tono de la acción sube por la derecha, frente a los botones
+            .background(LuzBorde(tono: tono, fuerza: 0.22, alto: 0.9, centro: 0.8, ancho: 0.6))
+            .tarjetaHalo(radio: 20, activa: true)
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .modifier(Aparece())
         }
     }
 
@@ -103,7 +115,8 @@ struct VistaAcciones: View {
     @ViewBuilder private func textoResultado(_ r: String) -> some View {
         let texto = Text(r)
             .font(.system(size: 14))
-            .foregroundStyle(Diseno.tinta)
+            .foregroundStyle(Halo.texto)
+            .lineSpacing(2)
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .leading)
         if simulado || r.count < 500 {
@@ -112,15 +125,35 @@ struct VistaAcciones: View {
             ScrollView { texto }.frame(height: 220)
         }
     }
+}
 
-    private func tarjeta(_ opacidad: Double) -> some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-            .fill(Color.white.opacity(opacidad))
-            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.white.opacity(0.65), lineWidth: 0.6))
+extension AccionTexto {
+    /// El tono del resultado: azul traducir, verde corregir, violeta lo que reescribe la IA del Mac, el de Claude
+    /// para Claude y ámbar para las ideas.
+    var tono: Tono {
+        switch self {
+        case .traducir: return .azul
+        case .corregir: return .verde
+        case .resumir, .formal: return .violeta
+        case .claude: return .claude
+        case .idea: return .ambar
+        }
     }
 }
 
-/// Píldora de acción que llena su columna; la última elegida queda en blanco sólido.
+/// Lo que aparece debajo (resultado, aviso, cargando) entra con un fundido y sin desplazarse: el alto del panel ya
+/// cambió (lo ajusta `ajustarAlto`) y solo se anima la opacidad, para no pelear con el marco de la ventana.
+private struct Aparece: ViewModifier {
+    @State private var visible = false
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(visible ? 1 : 0)
+            .onAppear { withAnimation(Halo.fundido) { visible = true } }
+    }
+}
+
+/// Píldora de acción que llena su columna; la última elegida queda en blanco sólido con letra negra.
 private struct BotonAccion: View {
     let accion: AccionTexto
     let activa: Bool
@@ -128,17 +161,23 @@ private struct BotonAccion: View {
 
     var body: some View {
         Button(action: alTocar) {
-            HStack(spacing: 7) {
+            HStack(spacing: 8) {
                 Image(systemName: accion.simbolo).font(.system(size: 12, weight: .semibold))
-                Text(accion.titulo).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
-                Text("\(accion.rawValue)").font(.system(size: 10, weight: .medium, design: .rounded)).foregroundStyle(Diseno.tintaTenue)
+                Text(accion.titulo).font(.system(size: 12.5, weight: activa ? .semibold : .medium)).lineLimit(1)
+                Text("\(accion.rawValue)").font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(activa ? Color.black.opacity(0.35) : Halo.texto3)
             }
-            .foregroundStyle(Diseno.tinta)
+            .foregroundStyle(activa ? Color.black : Halo.texto)
             .frame(maxWidth: .infinity)
             .frame(height: 36)
-            .background(Capsule().fill(activa ? Color.white : Diseno.vidrio))
-            .overlay(Capsule().strokeBorder(Diseno.borde, lineWidth: 0.8))
-            .shadow(color: activa ? Diseno.sombra : .clear, radius: 8, y: 3)
+            .background {
+                if activa {
+                    Capsule().fill(LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .top, endPoint: .bottom))
+                        .shadow(color: .white.opacity(0.18), radius: 8)
+                } else {
+                    Capsule().fill(.white.opacity(0.07)).overlay(Capsule().strokeBorder(.white.opacity(0.1), lineWidth: 1))
+                }
+            }
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -164,20 +203,32 @@ private struct TareaTraduccion: ViewModifier {
 
 // MARK: - Render y pruebas sin abrir la app
 
-/// Render del panel con un texto de ejemplo y su traducción. `Dictado --vista-acciones salida.png`
+/// Render del panel con un texto de ejemplo: su traducción y, al lado, el aviso de idiomas sin descargar.
+/// `Dictado --vista-acciones salida.png`
 @MainActor
 func hojaAcciones(_ destino: URL) -> Bool {
-    let estado = EstadoAcciones()
-    estado.texto = "Recordar revisar la propuesta comercial antes del viernes y confirmar la reunión con el equipo de diseño para cerrar los últimos detalles."
-    estado.app = "Mail"
-    estado.icono = Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app"))
-    estado.accion = .traducir
-    estado.detalle = "Traducción · Español → Inglés"
-    estado.resultado = "Remember to review the sales proposal before Friday and confirm the meeting with the design team to settle the final details."
-    let vista = VistaAcciones(estado: estado, control: nil, simulado: true)
-    let tam = NSHostingView(rootView: vista).fittingSize
-    let lienzo = CGSize(width: tam.width + 260, height: tam.height + 180)
-    let hoja = lienzoConVidrio(fondoDeMuestra(), lienzo: lienzo, panel: tam, radio: 26) { vista }
+    func estado(aviso: Bool) -> EstadoAcciones {
+        let estado = EstadoAcciones()
+        estado.texto = "Recordar revisar la propuesta comercial antes del viernes y confirmar la reunión con el equipo de diseño para cerrar los últimos detalles."
+        estado.app = "Mail"
+        estado.icono = Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: "/System/Applications/Mail.app"))
+        estado.accion = .traducir
+        if aviso {
+            estado.aviso = "Para traducir sin internet, macOS necesita descargar Español e Inglés (una sola vez)."
+            estado.faltanIdiomas = true
+        } else {
+            estado.detalle = "Traducción · Español → Inglés"
+            estado.resultado = "Remember to review the sales proposal before Friday and confirm the meeting with the design team to settle the final details."
+        }
+        return estado
+    }
+    let fondo = fondoDeMuestra()
+    func lienzo(_ e: EstadoAcciones) -> some View {
+        let vista = VistaAcciones(estado: e, control: nil, simulado: true)
+        let tam = NSHostingView(rootView: vista).fittingSize
+        return lienzoConVidrio(fondo, lienzo: CGSize(width: tam.width + 160, height: 640), panel: tam, radio: Halo.radioPanel) { vista }
+    }
+    let hoja = HStack(spacing: 0) { lienzo(estado(aviso: false)); lienzo(estado(aviso: true)) }
     let renderer = ImageRenderer(content: hoja)
     renderer.scale = 2
     guard let cg = renderer.cgImage,

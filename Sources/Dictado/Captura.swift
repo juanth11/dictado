@@ -312,8 +312,14 @@ extension OpcionCaptura {
     }
 }
 
-/// Panel de captura en vidrio claro: fila de botones circulares (el elegido en blanco), destino en píldora
-/// y la descripción de la opción elegida.
+extension OpcionCaptura {
+    /// Capturar es neutro (blanco); solo grabar lleva tono, el rojo de grabación.
+    var tono: Tono { self == .grabar ? .rojo : .neutro }
+}
+
+/// Panel de captura en Halo: fila de botones circulares (el elegido en blanco sólido), destino en píldora y, abajo,
+/// la opción elegida con su insignia. Una luz blanca tenue sube del borde justo debajo de la opción elegida y la
+/// sigue al cambiar (flechas, número o puntero); en Grabar se funde al rojo.
 struct VistaCaptura: View {
     static let ancho: CGFloat = 660
     static let alto: CGFloat = 250
@@ -322,12 +328,17 @@ struct VistaCaptura: View {
     let control: Captura?
     var simulado = false
 
+    private let margen: CGFloat = 24
+
     var body: some View {
         let actual = OpcionCaptura(rawValue: estado.seleccion) ?? .area
-        VStack(spacing: 18) {
+        let total = CGFloat(OpcionCaptura.allCases.count)
+        // Centro de la columna elegida, en fracción del ancho del panel.
+        let centro = (margen + (Self.ancho - 2 * margen) * (CGFloat(actual.rawValue) + 0.5) / total) / Self.ancho
+        VStack(spacing: 20) {
             HStack(spacing: 12) {
                 BotonCirculo(simbolo: "xmark", lado: 32, ayuda: "Cerrar (Esc)") { control?.cerrar() }
-                Text("Captura").font(.system(size: 15, weight: .semibold)).foregroundStyle(Diseno.tinta)
+                Text("Captura").font(.system(size: 15, weight: .semibold)).foregroundStyle(Halo.texto)
                 Spacer()
                 Segmentado(opciones: DestinoCaptura.allCases.map { ($0, estado.titulo($0)) }, valor: $estado.destino)
                     .onChange(of: estado.destino) { _, nuevo in
@@ -340,31 +351,35 @@ struct VistaCaptura: View {
             HStack(spacing: 0) {
                 ForEach(OpcionCaptura.allCases) { opcion in
                     let elegida = opcion == actual
-                    VStack(spacing: 9) {
-                        BotonCirculo(simbolo: opcion.simbolo, activo: elegida, lado: 60, ayuda: "\(opcion.titulo) (\(opcion.rawValue + 1))") {
+                    VStack(spacing: 8) {
+                        BotonCirculo(simbolo: opcion.simbolo, activo: elegida, lado: 56, ayuda: "\(opcion.titulo) (\(opcion.rawValue + 1))") {
                             control?.ejecutar(opcion)
                         }
                         Text(opcion.corto)
                             .font(.system(size: 12, weight: elegida ? .semibold : .medium))
-                            .foregroundStyle(elegida ? Diseno.tinta : Diseno.tintaSuave)
+                            .foregroundStyle(elegida ? Halo.texto : Halo.texto2)
                     }
                     .frame(maxWidth: .infinity)
                     .onHover { if $0 { estado.seleccion = opcion.rawValue } }
                 }
             }
-            HStack(spacing: 8) {
-                Text(actual.titulo).font(.system(size: 13, weight: .semibold)).foregroundStyle(Diseno.tinta)
-                Text(actual.detalle).font(.system(size: 13)).foregroundStyle(Diseno.tintaSuave)
-                Spacer()
-                EtiquetaSeccion(titulo: "↩ · 1–6 · ⌘D destino · esc")
+            HStack(spacing: 12) {
+                Insignia(icono: .simbolo(actual.simbolo), tono: actual.tono, lado: 28)
+                Text(actual.titulo).font(.system(size: 13, weight: .semibold)).foregroundStyle(Halo.texto)
+                Text(actual.detalle).font(.system(size: 12.5)).foregroundStyle(Halo.texto2)
+                Spacer(minLength: 8)
+                Rotulo("↩ · 1–6 · ⌘D destino · esc", color: Halo.texto3)
             }
-            .padding(.horizontal, 16)
-            .frame(height: 40)
-            .background(Capsule().fill(Color.white.opacity(0.4)))
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.6), lineWidth: 0.6))
+            .padding(.leading, 8)
+            .padding(.trailing, 16)
+            .frame(height: 44)
+            .tarjetaHalo(radio: 22)
         }
-        .padding(20)
+        .padding(margen)
         .frame(width: Self.ancho, height: Self.alto)
+        .background(LuzBorde(tono: actual.tono, fuerza: actual == .grabar ? 0.25 : 0.16, alto: 1.05, centro: centro - 0.012, ancho: 0.3))
+        .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
         .modifier(PanelVidrio(radio: 30, simulado: simulado))
+        .animation(Halo.cambio, value: estado.seleccion)
     }
 }

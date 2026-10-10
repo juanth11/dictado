@@ -292,16 +292,20 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
     return (try? png.write(to: destino)) != nil
 }
 
-/// Render del panel de captura (sin vidrio real). `Dictado --vista-captura salida.png`
+/// Render del panel de captura (sin vidrio real), con dos opciones elegidas para ver cómo la luz cambia de tono y
+/// de sitio: Texto (violeta) y Grabar (rojo). `Dictado --vista-captura salida.png`
 @MainActor
 func hojaCaptura(_ destino: URL) -> Bool {
-    let estado = EstadoCaptura()
-    estado.seleccion = 3
     let fondo = fondoDeMuestra()
-    let vista = lienzoConVidrio(fondo, lienzo: CGSize(width: 760, height: 400),
-                                panel: CGSize(width: VistaCaptura.ancho, height: VistaCaptura.alto), radio: 30) {
-        VistaCaptura(estado: estado, control: nil, simulado: true)
+    func panel(_ seleccion: Int) -> some View {
+        let estado = EstadoCaptura()
+        estado.seleccion = seleccion
+        return lienzoConVidrio(fondo, lienzo: CGSize(width: 760, height: 330),
+                               panel: CGSize(width: VistaCaptura.ancho, height: VistaCaptura.alto), radio: 30) {
+            VistaCaptura(estado: estado, control: nil, simulado: true)
+        }
     }
+    let vista = VStack(spacing: 0) { panel(3); panel(4) }
     let renderer = ImageRenderer(content: vista)
     renderer.scale = 2
     guard let cg = renderer.cgImage,
@@ -651,7 +655,7 @@ func hojaSalud(_ destino: URL) -> Bool {
             e.mensaje = "Borré para siempre 2,4 GB de la Papelera. El disco ganó 2,4 GB."
         }
         return lienzoConVidrio(fondo, lienzo: CGSize(width: 800, height: 720), panel: CGSize(width: Salud.ancho, height: Salud.alto), radio: 30) {
-            VistaSalud(estado: e, control: nil, simulado: true)
+            VistaSalud(estado: e, control: nil, simulado: true, alFinal: final)
         }
     }
     let hoja = HStack(spacing: 0) { panel(0); panel(1); panel(1, final: true) }
