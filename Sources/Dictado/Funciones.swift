@@ -57,4 +57,7 @@ struct ContextoModulos {
     let unirseAProxima: () -> Void
     /// El módulo de pulido registra aquí su transformación: recibe el texto dictado y devuelve el final.
     let registrarPulido: (@escaping @MainActor (String) async -> String) -> Void
+    /// Pausa (true) o reanuda (false) el historial del portapapeles mientras un módulo lo usa de paso
+    /// (copiar una selección con ⌘C simulado, pegar un resultado y devolver lo que había).
+    let pausarHistorial: (Bool) -> Void
 }

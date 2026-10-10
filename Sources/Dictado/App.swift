@@ -90,9 +90,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             abrirCaptura: { [weak self] in self?.captura.abrir() },
             abrirSalud: { [weak self] in self?.salud.abrir() },
             unirseAProxima: { [weak self] in self?.unirseAProxima() },
-            registrarPulido: { [weak self] pulir in self?.pulidor = pulir })
+            registrarPulido: { [weak self] pulir in self?.pulidor = pulir },
+            pausarHistorial: { [weak self] si in self?.portapapeles.historial.pausar(si) })
         // ↓ módulos
-        _ = contexto
+        modulos.append(PulidoIA(contexto))
+        modulos.append(AccionesTexto(contexto))
         // ↑ módulos
     }
 
