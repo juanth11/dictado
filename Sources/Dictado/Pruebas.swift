@@ -450,7 +450,9 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
         case .evento: estado.actividad = .evento(titulo: "Revisión de contrato", inicio: Date().addingTimeInterval(252),
                                                   color: Color(red: 0.35, green: 0.6, blue: 1.0),
                                                   enlace: URL(string: "https://meet.google.com/abc-defg-hij"))
-        case .volumen: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: false, salida: airpods)
+        case .volumen:  // DICTADO_VALOR=0.9 para ver otro nivel
+            let v = entorno["DICTADO_VALOR"].flatMap(Double.init) ?? 0.62
+            estado.actividad = .nivel(tipo: .volumen, valor: v, silencio: false, salida: airpods)
         case .brillo: estado.actividad = .nivel(tipo: .brillo, valor: 0.81, silencio: false)
         case .silencio: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: true, salida: airpods)
         case .carga: estado.actividad = .carga(porcentaje: 87)

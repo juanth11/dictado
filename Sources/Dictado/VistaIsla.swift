@@ -248,6 +248,14 @@ private struct BarraNivel: View {
     private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
 
     var body: some View {
+        if tipo == .volumen {
+            VolumenIsla(estado: estado, valor: valor, silencio: silencio, salida: salida)
+        } else {
+            cuna
+        }
+    }
+
+    private var cuna: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: estado.notch.height)
             HStack(spacing: 14) {
@@ -357,6 +365,174 @@ private struct Cuna: View {
             }
         }
         .animation(Halo.cambio, value: encendidas)
+    }
+}
+
+/// Volumen como una pirámide de luz (como un indicador de calidad del aire): sobre una cuadrícula fina, un triángulo
+/// de vidrio que se llena de luz desde la base hasta el nivel, con una rejilla de puntos de parlante abajo y un
+/// marcador blanco ◀ a la derecha en la altura del nivel. Muy alto, la punta se vuelve naranja (aviso). A la
+/// izquierda "VOL 62" en su tono; a la derecha la palabra del nivel y a dónde va el sonido. En silencio la pirámide
+/// queda vacía, con el nivel guardado marcado tenue.
+private struct VolumenIsla: View {
+    let estado: EstadoIsla
+    let valor: Double
+    let silencio: Bool
+    var salida: SalidaAudio?
+
+    private static let azul = Color(red: 0.36, green: 0.72, blue: 1.0)
+    private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
+
+    private var palabra: String {
+        if silencio { return "Silencio" }
+        switch valor {
+        case ..<0.01: return "Sin sonido"
+        case ..<0.34: return "Bajo"
+        case ..<0.67: return "Medio"
+        case ..<0.9: return "Alto"
+        default: return "Máximo"
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Color.clear.frame(height: estado.notch.height)
+            HStack(spacing: 0) {
+                HStack(alignment: .firstTextBaseline, spacing: 5) {
+                    Text("VOL").font(.system(size: 13, weight: .semibold)).foregroundStyle((silencio ? Self.rojoMudo : Self.azul).opacity(0.85))
+                    Text(silencio ? "—" : "\(Int((valor * 100).rounded()))")
+                        .font(.system(size: 22, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(silencio ? Self.rojoMudo : Self.azul)
+                        .contentTransition(.numericText(value: valor))
+                        .shadow(color: Self.azul.opacity(silencio ? 0 : 0.5), radius: 6)
+                }
+                .frame(width: 112, alignment: .leading)
+                Spacer(minLength: 8)
+                Piramide(valor: valor, apagada: silencio)
+                    .frame(width: 66, height: 35)
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(palabra.uppercased()).font(.system(size: 15, weight: .heavy)).tracking(0.3)
+                        .foregroundStyle(silencio ? Self.rojoMudo : .white).lineLimit(1)
+                        .contentTransition(.interpolate)
+                    if let salida {
+                        Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
+                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Halo.texto3)
+                            .labelStyle(EtiquetaJunta()).lineLimit(1)
+                    }
+                }
+                .frame(width: 112, alignment: .trailing)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 3)  // la base de la pirámide no toca el borde
+            .frame(maxHeight: .infinity)
+        }
+        .background { Cuadricula().padding(.top, estado.notch.height) }
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+    }
+}
+
+/// Cuadrícula fina de fondo (cada 8 pt), que se desvanece hacia los bordes.
+private struct Cuadricula: View {
+    var body: some View {
+        GeometryReader { g in
+            Path { p in
+                var x: CGFloat = 0
+                while x <= g.size.width { p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: g.size.height)); x += 8 }
+                var y: CGFloat = 0
+                while y <= g.size.height { p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: g.size.width, y: y)); y += 8 }
+            }
+            .stroke(.white.opacity(0.08), lineWidth: 0.5)
+            .mask(RadialGradient(colors: [.black, .black.opacity(0.4), .clear], center: .center, startRadius: 0,
+                                 endRadius: g.size.width * 0.5))
+        }
+        .allowsHitTesting(false)
+    }
+}
+
+/// La pirámide: vidrio oscuro con filos de luz, relleno de luz desde la base hasta el nivel (azul abajo, violeta
+/// arriba; por encima de 80 %, la punta naranja), la línea del nivel, la rejilla de puntos en la base y el marcador.
+private struct Piramide: View {
+    let valor: Double
+    var apagada = false
+
+    private static let azul = Color(red: 0.25, green: 0.55, blue: 1.0)
+    private static let celeste = Color(red: 0.55, green: 0.85, blue: 1.0)
+    private static let violeta = Color(red: 0.62, green: 0.48, blue: 1.0)
+    private static let naranja = Color(red: 1.0, green: 0.52, blue: 0.2)
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        GeometryReader { g in
+            let w = g.size.width - 10, h = g.size.height  // a la derecha, el marcador
+            let forma = Triangulo().path(in: CGRect(x: 0, y: 0, width: w, height: h))
+            let nivelY = h * (1 - v)
+            ZStack(alignment: .topLeading) {
+                // luz que se derrama bajo la base
+                if !apagada && v > 0 {
+                    Ellipse().fill(Self.azul).frame(width: w * 1.2, height: h * 0.5)
+                        .position(x: w / 2, y: h + 2).blur(radius: 9).opacity(0.25 + 0.4 * v)
+                }
+                // vidrio
+                forma.fill(LinearGradient(colors: [.white.opacity(0.08), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom))
+                // relleno hasta el nivel
+                if !apagada && v > 0 {
+                    Rectangle()
+                        .fill(LinearGradient(stops: relleno(v), startPoint: .bottom, endPoint: .top))
+                        .frame(width: w, height: h * v)
+                        .offset(y: nivelY)
+                        .mask(forma)
+                        .shadow(color: Self.azul.opacity(0.8), radius: 7)
+                    Rectangle()  // brillo junto a la línea del nivel, como luz que cae
+                        .fill(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0)], startPoint: .top, endPoint: .bottom))
+                        .frame(width: w, height: min(h * v, 9))
+                        .offset(y: nivelY)
+                        .mask(forma)
+                        .blendMode(.plusLighter)
+                    // la línea del nivel
+                    Rectangle().fill(.white.opacity(0.85)).frame(width: w, height: 0.8)
+                        .offset(y: nivelY).mask(forma).shadow(color: .white, radius: 2)
+                }
+                // rejilla de puntos del parlante, en la base
+                Canvas { ctx, _ in
+                    let filas: [(Int, CGFloat)] = [(3, 0), (4, 1), (5, 2), (4, 3), (3, 4)]
+                    let paso: CGFloat = 3.2, r: CGFloat = 0.85
+                    for (n, f) in filas {
+                        let y = h - 6 - (4 - f) * paso * 0.88
+                        for i in 0..<n {
+                            let x = w / 2 + (CGFloat(i) - CGFloat(n - 1) / 2) * paso
+                            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
+                                     with: .color(.white.opacity(apagada ? 0.25 : 0.55 + 0.4 * v)))
+                        }
+                    }
+                }
+                .frame(width: w, height: h)
+                // filos de luz
+                forma.stroke(LinearGradient(colors: [.white.opacity(apagada ? 0.3 : 0.75), .white.opacity(0.12)],
+                                            startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
+                // marcador ◀ en la altura del nivel, junto al filo derecho
+                Triangulo()
+                    .rotation(.degrees(-90))
+                    .fill(apagada ? Color.white.opacity(0.4) : .white)
+                    .frame(width: 5, height: 6)
+                    .shadow(color: apagada ? .clear : .white.opacity(0.8), radius: 2)
+                    .position(x: w / 2 + (w / 2) * (nivelY / h) + 6, y: min(h - 3, max(3, nivelY)))
+            }
+        }
+    }
+
+    /// La luz es más fuerte arriba (junto al nivel) y se apaga hacia la base: azul tenue abajo, azul y celeste arriba;
+    /// por encima de 80 %, la punta naranja.
+    private func relleno(_ v: Double) -> [Gradient.Stop] {
+        var paradas: [Gradient.Stop] = [.init(color: Self.azul.opacity(0.35), location: 0), .init(color: Self.azul.opacity(0.85), location: 0.5)]
+        if v > 0.8 {
+            let corte = 0.8 / v
+            paradas += [.init(color: Self.celeste, location: corte - 0.03), .init(color: Self.naranja, location: corte + 0.02),
+                        .init(color: Color(red: 1.0, green: 0.72, blue: 0.4), location: 1)]
+        } else {
+            paradas += [.init(color: Self.celeste, location: 1)]
+        }
+        return paradas
     }
 }
 
