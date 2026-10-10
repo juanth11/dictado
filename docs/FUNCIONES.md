@@ -101,6 +101,11 @@ Los atajos se registran con los cuatro modificadores, así que también funciona
 - Los mapeos por teclado hechos con `hidutil --matching` no se mezclan: Dictado lee y escribe el mapeo global.
 - Mantenida más de un segundo sin tocar otra tecla, no manda Esc al soltarla.
 
+**Protecciones añadidas tras la revisión de código:**
+
+- Si algún teclado tiene su propio mapeo de teclas (hecho con `hidutil --matching`) y no hay uno global, la tecla hyper no se aplica. Escribir un mapeo global copiaría ese mapeo a todos los teclados. Bloq Mayús sigue normal y los atajos con ⌃⌥⌘⇧ a mano siguen funcionando.
+- El "soltar perdido" de Bloq Mayús (pasa en campos de contraseña) solo se da por hecho si hyper lleva más de medio segundo abajo. Así un Hyper+↩ soltado muy rápido nunca llega a la app como un ↩ solo, que enviaría el mensaje o el formulario.
+
 ## Ventanas por teclado
 
 **Qué hace.** Acomoda la ventana al frente con el teclado. Solo trae lo que macOS 26 no hace de serie (su mosaico ya tiene mitades y cuartos con fn ⌃ + flechas):

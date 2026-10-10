@@ -81,8 +81,12 @@ func probarHyper() -> Bool {
     _ = ev(.keyUp, f18, 6.2)
     r.revisar("la tecla que bajó con hyper sube con hyper aunque F18 ya subió", ev(.keyUp, a, 6.3) == .pasarCon(hyper))
     _ = ev(.keyDown, f18, 7, abajo: true)
-    r.revisar("soltar de F18 perdido (Entrada Segura): la siguiente tecla va limpia", ev(.keyDown, v, 7.5, abajo: false) == .pasar)
-    _ = ev(.keyUp, v, 7.6)
+    r.revisar("Hyper+tecla soltada muy rápido (estado HID adelantado) sigue con hyper",
+              ev(.keyDown, v, 7.2, abajo: false) == .pasarCon(hyper))
+    _ = ev(.keyUp, v, 7.25)
+    r.revisar("soltar de F18 perdido (Entrada Segura): pasado medio segundo, la siguiente tecla va limpia",
+              ev(.keyDown, v, 7.8, abajo: false) == .pasar)
+    _ = ev(.keyUp, v, 7.85)
     _ = ev(.keyDown, f18, 8, abajo: false)
     r.revisar("si el estado HID no es fiable, hyper sigue funcionando", ev(.keyDown, v, 8.1, abajo: false) == .pasarCon(hyper))
     _ = ev(.keyUp, v, 8.2)

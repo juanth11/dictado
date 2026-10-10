@@ -204,6 +204,8 @@ struct MaquinaHyper {
     static let modificadores: CGEventFlags = [.maskControl, .maskAlternate, .maskCommand, .maskShift]
     /// Mantenida más de esto sin tocar otra tecla, no manda Esc al soltar: cambiaste de idea (como Karabiner).
     static let esperaEsc: TimeInterval = 1.0
+    /// Hyper tiene que llevar al menos esto abajo para dar por perdido su soltar.
+    static let esperaSoltarPerdido: TimeInterval = 0.5
 
     enum Resultado: Equatable {
         case pasar
@@ -241,8 +243,11 @@ struct MaquinaHyper {
             usada = false
             return esc ? .consumirYEsc(flags.intersection(Self.modificadores)) : .consumir
         case .keyDown:
-            if activa, guardaFiable, !f18Abajo() {
-                reiniciar()  // F18 ya no está abajo: se perdió su soltar
+            // F18 ya no está abajo: se perdió su soltar. Solo se cree si hyper lleva más de medio segundo: el estado
+            // HID puede ir por delante de la cola del tap y, en un Hyper+↩ soltado muy rápido, el ↩ llegaría solo
+            // a la app (y mandaría el mensaje o el formulario).
+            if activa, guardaFiable, momento - desde > Self.esperaSoltarPerdido, !f18Abajo() {
+                reiniciar()
             }
             guard activa else { return .pasar }
             usada = true
@@ -469,17 +474,23 @@ enum MapeoHyper {
         return Par(origen: v[0].int64Value, destino: v[1].int64Value)
     }
 
-    /// El mapeo actual: el global del sistema HID; si no lo expone, el del primer teclado que tenga uno.
+    /// El mapeo global del sistema HID (vacío si no hay).
     static func leer() -> [Par] {
         let cliente = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
-        if let global = IOHIDEventSystemClientCopyProperty(cliente, kIOHIDUserKeyUsageMapKey as CFString) {
-            return pares(global)
-        }
+        guard let global = IOHIDEventSystemClientCopyProperty(cliente, kIOHIDUserKeyUsageMapKey as CFString) else { return [] }
+        return pares(global)
+    }
+
+    /// ¿Hay teclados con su propio mapeo (hecho con `hidutil --matching`) y ninguno global? Entonces hyper no
+    /// escribe nada: un mapeo global copiaría el de un teclado a todos y, al quitarlo, quedaría en todos.
+    static func hayMapeosPorTeclado() -> Bool {
+        let cliente = IOHIDEventSystemClientCreateSimpleClient(kCFAllocatorDefault)
+        if IOHIDEventSystemClientCopyProperty(cliente, kIOHIDUserKeyUsageMapKey as CFString) != nil { return false }
         let servicios = (IOHIDEventSystemClientCopyServices(cliente) as? [IOHIDServiceClient]) ?? []
-        for s in servicios where IOHIDServiceClientConformsTo(s, UInt32(kHIDPage_GenericDesktop), UInt32(kHIDUsage_GD_Keyboard)) != 0 {
-            if let valor = IOHIDServiceClientCopyProperty(s, kIOHIDUserKeyUsageMapKey as CFString) { return pares(valor) }
+        return servicios.contains { s in
+            IOHIDServiceClientConformsTo(s, UInt32(kHIDPage_GenericDesktop), UInt32(kHIDUsage_GD_Keyboard)) != 0
+                && !pares(IOHIDServiceClientCopyProperty(s, kIOHIDUserKeyUsageMapKey as CFString) ?? [] as CFArray).isEmpty
         }
-        return []
     }
 
     @discardableResult
@@ -501,7 +512,14 @@ enum MapeoHyper {
     /// Pone Bloq Mayús → F18. Se llama de nuevo al despertar o al conectar un teclado (es idempotente).
     @discardableResult
     static func aplicar() -> Bool {
-        let (mapeo, previo) = conHyper(leer(), guardado: guardado, yaAplicado: aplicado)
+        if hayMapeosPorTeclado() {
+            log.error("hay mapeos de teclado propios por dispositivo: la tecla hyper no se aplica para no pisarlos")
+            return false
+        }
+        let actual = leer()
+        // Tras un cierre brusco y un reinicio, `aplicado` puede seguir en true sin que el mapeo exista: solo cuenta
+        // como aplicado si de verdad está.
+        let (mapeo, previo) = conHyper(actual, guardado: guardado, yaAplicado: aplicado && actual.contains(propio))
         guard escribir(mapeo) else {
             log.error("hidutil no pudo aplicar el mapeo de Bloq Mayús")
             return false
