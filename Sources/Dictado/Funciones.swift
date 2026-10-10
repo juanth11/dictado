@@ -53,6 +53,8 @@ struct ContextoModulos {
     let abrirPortapapeles: () -> Void
     let abrirCaptura: () -> Void
     let abrirSalud: () -> Void
+    /// Abre el centro de mando; si ya está abierto, lo cierra.
+    let alternarCentro: () -> Void
     /// Abre el enlace de la reunión en curso o la próxima (Meet, Zoom, Teams).
     let unirseAProxima: () -> Void
     /// El módulo de pulido registra aquí su transformación: recibe el texto dictado y devuelve el final.

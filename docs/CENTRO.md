@@ -60,6 +60,8 @@ Las rutas relativas (`enlace`, `abrir`, `archivo`) se abren dentro de `local.cer
 
 ## Atajos
 
+**Hyper + A** (Bloq Mayús + A, o ⌃⌥⇧⌘A) lo abre desde cualquier app y, si ya está abierto, lo cierra. También: menú de Dictado → *Centro de mando…*, o `Dictado --abrir-centro` desde Atajos o Raycast.
+
 Con el espacio abierto: **⌘1** Hoy · **⌘2** Metas · **⌘3** Orquesta · **⌘4** Inbox · **⌘R** actualizar · **esc** o **⌘W** cerrar.
 
 Accesibilidad: con *Reducir movimiento* las ventanas quedan de frente y no se animan; con *Reducir transparencia* el vidrio y el fondo se vuelven sólidos.

@@ -95,6 +95,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             abrirPortapapeles: { [weak self] in self?.portapapeles.abrir() },
             abrirCaptura: { [weak self] in self?.captura.abrir() },
             abrirSalud: { [weak self] in self?.salud.abrir() },
+            alternarCentro: { [weak self] in self?.alternarCentro() },
             unirseAProxima: { [weak self] in self?.unirseAProxima() },
             registrarPulido: { [weak self] pulir in self?.pulidor = pulir },
             pausarHistorial: { [weak self] si in self?.portapapeles.historial.pausar(si) })
@@ -211,6 +212,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func abrirCentro() {
         if centro == nil { centro = Centro(claude: isla?.claude) }
         centro?.abrir()
+    }
+
+    /// Hyper + A: abre el centro de mando o, si ya está abierto, lo cierra.
+    private func alternarCentro() {
+        if centro?.abierta == true { centro?.cerrar() } else { abrirCentro() }
     }
 
     private func crearIsla() {
