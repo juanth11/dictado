@@ -10,6 +10,10 @@ if argumentos.count > 2, argumentos[1] == "--vista-agentes" {
     let ok = MainActor.assumeIsolated { hojaIsla(URL(fileURLWithPath: argumentos[2]), soloAgentes: true) }
     exit(ok ? 0 : 1)
 }
+if argumentos.count > 2, argumentos[1] == "--vista-mosaicos" {
+    let ok = MainActor.assumeIsolated { hojaMosaicos(URL(fileURLWithPath: argumentos[2])) }
+    exit(ok ? 0 : 1)
+}
 if argumentos.count > 2, argumentos[1] == "--vista-verme" {
     let ok = MainActor.assumeIsolated { hojaVerme(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)
