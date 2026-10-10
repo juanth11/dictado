@@ -1179,6 +1179,7 @@ private struct FilaTareaCentro: View {
                 Text(t.titulo).font(.system(size: 12, weight: .semibold)).foregroundStyle(hecha ? Halo.texto2 : Halo.texto).lineLimit(1)
                 Text(hecha || t.agente == "default" ? t.detalle : "\(t.agente) · \(t.detalle)")
                     .font(.system(size: 10.5)).foregroundStyle(Halo.texto3).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
             if let c = t.cuando, !hecha {
