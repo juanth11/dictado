@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-// Las vistas del centro de mando (Hoy, Metas, Orquesta). Las usan la ventana real (CentroVentana.swift) y el render
-// de maquetas (`--vista-centro2`, `--vista-centro-real`). Solo pintan el estado: no calculan nada ni guardan nada.
-// Fase 2 = solo lectura: las acciones que hay abren cosas (el tablero de finanzas, una noticia, el archivo de metas,
-// una sesión de Claude) o piden una lectura fresca. Aprobar y delegar llegan después.
+// Las secciones del centro de mando (Hoy, Metas, Orquesta, Inbox), cada una como ventanas en el espacio
+// (CentroEspacio.swift). Las usan la ventana real (CentroVentana.swift) y el render de maquetas (`--vista-centro2`,
+// `--vista-centro-real`). Solo pintan el estado: no calculan ni guardan nada. Las acciones abren cosas (el tablero de
+// finanzas, una noticia, el archivo de metas, una sesión de Claude), piden una lectura fresca o aprueban el inbox.
 
 enum SeccionCentro: String, CaseIterable {
     case hoy, metas, orquesta, inbox
@@ -46,6 +46,9 @@ struct ContextoCentro {
     var puedeActuar = false
     var aplicarInbox: (String, String, String?) -> Void = { _, _, _ in }
     var copiar: (String) -> Void = { _ in }
+    var cerrar: () -> Void = {}
+    var tokensHoy = 0
+    var respuestasHoy = 0
 
     var esperando: [SesionesClaude.Sesion] { sesiones.filter { $0.estado == .esperando } }
     var trabajando: [SesionesClaude.Sesion] { sesiones.filter { $0.estado == .trabajando } }
@@ -92,62 +95,468 @@ private func enlace(_ t: String, accion: @escaping () -> Void) -> some View {
     BotonCentro(titulo: t, tipo: .enlace, accion: accion)
 }
 
-// MARK: - Raíz
+// MARK: - Escenas en el espacio
 
-struct VistaCentro: View {
+/// La sección en el espacio: cada una pone sus ventanas (y lo de debajo) en EspacioCentro.
+struct EscenaCentro: View {
     let estado: EstadoCentro?
     let ctx: ContextoCentro
     @Binding var seccion: SeccionCentro
 
     var body: some View {
-        HStack(spacing: 0) {
-            BarraCentro(estado: estado, ctx: ctx, seccion: $seccion)
-                .frame(width: 224)
-            Rectangle().fill(Halo.linea).frame(width: 1)
-            VStack(spacing: 0) {
-                BarraSuperiorCentro(estado: estado, ctx: ctx, seccion: seccion)
-                    .frame(height: 60)
-                Rectangle().fill(Halo.linea).frame(height: 1)
-                if let error = ctx.error, ctx.configurado { AvisoCentro(texto: error, accion: ctx.actualizar) }
-                contenido
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        }
-    }
-
-    @ViewBuilder private var contenido: some View {
         if !ctx.configurado {
-            SinConfigurar()
+            soloCentro { SinConfigurar() }
         } else if let estado {
             switch seccion {
-            case .hoy: EscenaHoyCentro(e: estado, ctx: ctx)
+            case .hoy: EscenaHoyCentro(e: estado, ctx: ctx) { seccion = $0 }
             case .metas:
-                if let m = estado.metas { EscenaMetasCentro(metas: m, ctx: ctx) } else { Vacio(texto: "Aún no hay metas publicadas.") }
+                if let m = estado.metas { EscenaMetasCentro(metas: m, ctx: ctx) } else { soloCentro { Vacio(texto: "Aún no hay metas publicadas.") } }
             case .orquesta: EscenaOrquestaCentro(e: estado, ctx: ctx)
             case .inbox: EscenaInboxCentro(e: estado, ctx: ctx)
             }
-        } else if ctx.cargando {
-            Vacio(texto: "Leyendo el estado del día…")
         } else {
-            Vacio(texto: ctx.error ?? "Sin datos todavía.")
+            soloCentro { Vacio(texto: ctx.cargando ? "Leyendo el estado del día…" : (ctx.error ?? "Sin datos todavía.")) }
+        }
+    }
+
+    private func soloCentro<C: View>(@ViewBuilder _ c: @escaping () -> C) -> some View {
+        EspacioCentro { EmptyView() } centro: { VentanaEspacio { c() } } derecha: { EmptyView() }
+    }
+}
+
+private func usd(_ v: Double) -> String { String(format: "%.2f", v).replacingOccurrences(of: ".", with: ",") }
+
+private func tokensCortos(_ n: Int) -> String {
+    if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
+    if n >= 1_000 { return "\(n / 1_000) k" }
+    return "\(n)"
+}
+
+// MARK: - Hoy
+
+/// Hoy: tus agentes a la izquierda, el brief al frente, finanzas y radar a la derecha y las metas debajo.
+private struct EscenaHoyCentro: View {
+    let e: EstadoCentro
+    let ctx: ContextoCentro
+    let ir: (SeccionCentro) -> Void
+
+    var body: some View {
+        EspacioCentro {
+            VentanaEspacio { AgentesHoyCentro(e: e, ctx: ctx) { ir(.inbox) } }
+        } centro: {
+            if let b = e.brief {
+                VentanaEspacio(relleno: 28) { BriefCentro(b: b) }
+            } else {
+                VentanaEspacio { Vacio(texto: "El brief de hoy todavía no se ha generado: sale a las 5:30 en tu VPS.") }
+            }
+        } derecha: {
+            VStack(spacing: 16) {
+                if let f = e.finanzas {
+                    VentanaEspacio { FinanzasCentro(f: f, ctx: ctx) }.fixedSize(horizontal: false, vertical: true)
+                }
+                if let n = e.noticias, !n.items.isEmpty {
+                    VentanaEspacio { RadarCentro(items: Array(n.items.prefix(3)), ctx: ctx) }
+                }
+            }
+            .frame(maxHeight: .infinity, alignment: .top)
+        } debajo: {
+            if let m = e.metas { MetasDebajoCentro(m: m) { ir(.metas) } }
         }
     }
 }
 
-/// Si el VPS no respondió: una línea, lo último que se supo sigue a la vista y se puede reintentar.
-private struct AvisoCentro: View {
-    let texto: String
+private struct AgentesHoyCentro: View {
+    let e: EstadoCentro
+    let ctx: ContextoCentro
+    let irAlInbox: () -> Void
+
+    /// Primero lo que te espera, luego lo que trabaja, luego lo listo (lo más reciente arriba).
+    private var sesiones: [SesionesClaude.Sesion] {
+        func orden(_ s: SesionesClaude.Sesion) -> Int { s.estado == .esperando ? 0 : (s.estado == .trabajando ? 1 : 2) }
+        return ctx.sesiones.sorted { orden($0) != orden($1) ? orden($0) < orden($1) : $0.desde > $1.desde }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            CabeceraVentana(titulo: "Agentes", detalle: detalle)
+            if sesiones.isEmpty {
+                Text("Ninguna sesión de Claude abierta en el Mac.").font(.system(size: 12)).foregroundStyle(TextoCentro.terciario)
+            } else {
+                VStack(spacing: 2) {
+                    ForEach(sesiones.prefix(5)) { s in FilaSesionCentro(s: s) { ctx.abrirSesion(s) } }
+                }
+                .padding(.horizontal, -10)
+            }
+            FiloCentro()
+            HermesCentro(e: e)
+            if let ib = e.inbox, !ib.items.isEmpty {
+                FiloCentro()
+                LlegoCentro(items: ib.items, accion: irAlInbox)
+            }
+            Spacer(minLength: 0)
+            VStack(alignment: .leading, spacing: 5) {
+                if ctx.tokensHoy > 0 {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Cifra(numero: tokensCortos(ctx.tokensHoy), tamano: 26)
+                        Text("tokens de Claude hoy · \(ctx.respuestasHoy) respuestas").font(.system(size: 12)).foregroundStyle(TextoCentro.terciario)
+                    }
+                }
+                if let o = e.orquesta, o.costoDisponible != false {
+                    Text("Hermes: \(usd(o.costoHoy)) USD hoy · el mes va en \(usd(o.costoMes)) de \(Int(o.presupuestoMes))")
+                        .font(.system(size: 11.5)).monospacedDigit().foregroundStyle(TextoCentro.terciario)
+                }
+            }
+        }
+    }
+
+    private var detalle: String {
+        let n = ctx.sesiones.count
+        var t = n == 1 ? "1 sesión de Claude" : "\(n) sesiones de Claude"
+        if !ctx.trabajando.isEmpty { t += " · \(ctx.trabajando.count) trabajando" }
+        if !ctx.esperando.isEmpty { t += ctx.esperando.count == 1 ? " · 1 te espera" : " · \(ctx.esperando.count) te esperan" }
+        return t
+    }
+}
+
+/// Una sesión de Claude Code: al tocarla se abre justo esa sesión.
+private struct FilaSesionCentro: View {
+    let s: SesionesClaude.Sesion
     let accion: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 11)).foregroundStyle(Tono.ambar.claro)
-            Text(texto).font(.system(size: 12)).foregroundStyle(Halo.texto).lineLimit(1)
-            Spacer()
-            BotonCentro(titulo: "Reintentar", icono: "arrow.clockwise", tipo: .enlace, accion: accion)
+        Button(action: accion) {
+            HStack(alignment: .top, spacing: 12) {
+                Group {
+                    switch s.estado {
+                    case .trabajando: EstrellaClaude().fill(Tono.claude.base).frame(width: 14, height: 14)
+                    case .esperando: PuntoBrillante(color: Tono.claude.base, lado: 8)
+                    case .lista: Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(TextoCentro.terciario)
+                    }
+                }
+                .frame(width: 18, height: 18)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(s.nombre).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                    Text(linea).font(.system(size: 11.5))
+                        .foregroundStyle(s.estado == .esperando ? Tono.claude.claro : TextoCentro.terciario).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .contentShape(Rectangle())
+            .modifier(EncimaCentro(radio: 12))
         }
-        .padding(.horizontal, 28).frame(height: 38)
-        .background(Tono.ambar.base.opacity(0.12))
+        .buttonStyle(.plain)
+        .help("Abrir la sesión")
+    }
+
+    private var linea: String {
+        switch s.estado {
+        case .esperando: return s.espera.isEmpty ? "Espera tu respuesta" : s.espera
+        case .trabajando: return s.actividad.isEmpty ? "Trabajando · \(hace(s.desde))" : s.actividad
+        case .lista: return "Lista · \(hace(s.desde))" + (s.resumen.isEmpty ? "" : " · \(s.resumen)")
+        }
+    }
+}
+
+/// Tu agente del VPS: si está vivo, cuánto corrió hoy y qué sigue.
+private struct HermesCentro: View {
+    let e: EstadoCentro
+
+    var body: some View {
+        let rotas = (e.salud?.capacidades ?? []).filter { $0.estado == "rota" || $0.estado == "alerta" }
+        let tono: Tono = !e.vps ? .rojo : (rotas.isEmpty ? .verde : .ambar)
+        let estado = !e.vps ? "Sin conexión" : (rotas.isEmpty ? "En línea" : "Con alertas")
+        HStack(alignment: .top, spacing: 12) {
+            Insignia(icono: .simbolo("server.rack"), tono: tono, lado: 34)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text("Hermes · VPS").font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto)
+                    Spacer()
+                    HStack(spacing: 5) {
+                        PuntoBrillante(color: tono.base, lado: 5)
+                        Text(estado).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(tono.claro)
+                    }
+                }
+                Text(linea(rotas)).font(.system(size: 11.5)).foregroundStyle(TextoCentro.secundario).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func linea(_ rotas: [EstadoCentro.Capacidad]) -> String {
+        if let r = rotas.first { return "\(r.nombre): \(r.detalle ?? r.estado)" }
+        guard let o = e.orquesta else { return "Sin datos de la orquesta." }
+        var p = [o.hecho.count == 1 ? "1 corrida hoy" : "\(o.hecho.count) corridas hoy"]
+        if let s = o.programado.first { p.append("sigue \(s.titulo)" + (s.cuando.map { " \($0)" } ?? "")) }
+        return p.joined(separator: " · ")
+    }
+}
+
+/// Lo último que capturaste, para verlo sin salir de Hoy; clasificarlo es en Inbox.
+private struct LlegoCentro: View {
+    let items: [EstadoCentro.Propuesta]
+    let accion: () -> Void
+
+    var body: some View {
+        let recientes = items.sorted { ($0.fecha ?? "") > ($1.fecha ?? "") }.prefix(3)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Rotulo("En tu inbox · \(items.count)", color: TextoCentro.terciario)
+                Spacer()
+                BotonCentro(titulo: "Clasificar", tipo: .enlace, accion: accion)
+            }
+            ForEach(Array(recientes), id: \.id) { p in
+                HStack(spacing: 10) {
+                    Image(systemName: iconoCaptura(p)).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).frame(width: 16)
+                    Text(p.titulo).font(.system(size: 12.5)).foregroundStyle(Halo.texto).lineLimit(1)
+                    Spacer(minLength: 6)
+                    if let f = p.fecha, let d = EscenaMetasCentroFecha.dia(f) {
+                        Text(hace(d)).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).fixedSize()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// El brief del día al frente: saludo y clima, el foco levantado (lo único que pide tu atención), las prioridades
+/// y lo bueno de saber.
+private struct BriefCentro: View {
+    let b: EstadoCentro.Brief
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Rotulo("\(b.fecha) · semana \(b.semana)", color: TextoCentro.terciario)
+                    Text(saludo).font(.system(size: 32, weight: .thin)).foregroundStyle(Halo.texto)
+                    HStack(spacing: 6) {
+                        EstrellaClaude().fill(Tono.claude.claro).frame(width: 10, height: 10)
+                        Text(generado).font(.system(size: 11.5)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
+                    }
+                }
+                Spacer(minLength: 8)
+                if let c = b.clima { clima(c) }
+            }
+            if !esHoy(b.fechaIso) {
+                Text("Es de otro día: el brief de hoy aún no sale").font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Tono.ambar.claro).padding(.horizontal, 9).frame(height: 22)
+                    .background(Capsule().fill(Tono.ambar.base.opacity(0.14))).padding(.top, 10)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                Rotulo("El foco", color: Tono.ambar.claro)
+                Text(b.foco.titulo).font(.system(size: 18)).foregroundStyle(Halo.texto)
+                    .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+                Text(b.foco.porque).font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
+                    .lineSpacing(3).lineLimit(5).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .levantado(radio: 20, tono: .ambar)
+            .padding(.top, 20)
+            HStack(alignment: .firstTextBaseline) {
+                Text("Prioridades").font(.system(size: 15, weight: .semibold)).foregroundStyle(Halo.texto)
+                Spacer()
+                Text("\(b.prioridades.filter(\.hecha).count) de \(b.prioridades.count) hechas").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
+            }
+            .padding(.top, 22)
+            VStack(spacing: 0) {
+                ForEach(Array(b.prioridades.prefix(3).enumerated()), id: \.offset) { i, p in
+                    FiloCentro()
+                    FilaPrioridadCentro(numero: i + 1, p: p)
+                }
+                FiloCentro()
+            }
+            .padding(.top, 8)
+            if !b.buenoSaber.isEmpty {
+                Rotulo("Bueno saber", color: TextoCentro.terciario).padding(.top, 18)
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(Array(b.buenoSaber.prefix(3).enumerated()), id: \.offset) { _, t in
+                        HStack(alignment: .top, spacing: 9) {
+                            Circle().fill(.white.opacity(0.4)).frame(width: 3, height: 3).padding(.top, 7)
+                            // Sin fixedSize: si falta alto, esto es lo que se acorta (lo demás no).
+                            Text(t).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario).lineLimit(2)
+                        }
+                    }
+                }
+                .padding(.top, 9)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    /// El nombre sale de la cuenta del Mac (nada personal escrito en el código).
+    private var saludo: String {
+        let nombre = NSFullUserName().split(separator: " ").first.map(String.init) ?? ""
+        return nombre.isEmpty ? "Tu día" : "Hola, \(nombre)"
+    }
+
+    private var generado: String {
+        var partes = ["Brief de \(b.modelo)"]
+        if let h = horaCorta(b.generado) { partes.append(h) }
+        if let f = b.fuentes { partes.append("\(f) fuentes") }
+        return partes.joined(separator: " · ")
+    }
+
+    private func clima(_ c: EstadoCentro.Brief.Clima) -> some View {
+        VStack(alignment: .trailing, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: c.simbolo).font(.system(size: 18, weight: .light)).foregroundStyle(TextoCentro.secundario)
+                Text("\(c.temp)°").font(.system(size: 30, weight: .thin)).foregroundStyle(Halo.texto)
+            }
+            Text("\(c.cielo) · \(c.ciudad)").font(.system(size: 11.5)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
+            Text(detalleClima(c)).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
+        }
+    }
+
+    private func detalleClima(_ c: EstadoCentro.Brief.Clima) -> String {
+        var t = "Máx \(c.max)° · mín \(c.min)°"
+        if b.agendaLeida == true { t += (b.agenda ?? []).isEmpty ? " · sin reuniones" : " · \((b.agenda ?? []).count) en agenda" }
+        return t
+    }
+}
+
+/// Finanzas en resumen, sin cifra de vitrina: lo que importa en una lista corta y el colchón como regla de marcas.
+/// El detalle vive en el tablero real (el enlace).
+private struct FinanzasCentro: View {
+    let f: EstadoCentro.Finanzas
+    let ctx: ContextoCentro
+
+    var body: some View {
+        let piso = f.colchonPiso > 0 ? min(1, f.colchon / f.colchonPiso) : 0
+        VStack(alignment: .leading, spacing: 11) {
+            HStack(alignment: .top) {
+                CabeceraVentana(titulo: "Finanzas", detalle: actualizado)
+                Spacer()
+                if let e = f.enlace { enlace("Abrir el tablero") { ctx.abrir(e) }.padding(.top, 5) }
+            }
+            .padding(.bottom, 4)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("Patrimonio neto").font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
+                Spacer()
+                Text(millonesCOP(f.patrimonio)).font(.system(size: 20, weight: .light)).monospacedDigit().foregroundStyle(Halo.texto)
+                Text(millonesCOP(f.delta, signo: true)).font(.system(size: 11, weight: .semibold)).monospacedDigit()
+                    .foregroundStyle(f.delta >= 0 ? Tono.verde.claro : Tono.rojo.claro)
+            }
+            fila("Liquidez", millonesCOP(f.liquidez))
+            fila("Neto del mes", millonesCOP(f.netoMes, signo: true))
+            HStack(spacing: 10) {
+                Text("Colchón").font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
+                Regla(valor: piso, tono: .neutro, cuantas: 26, alto: 9, grosor: 1)
+                Text("\(Int((piso * 100).rounded())) % del piso").font(.system(size: 11.5, weight: .medium)).monospacedDigit()
+                    .foregroundStyle(Halo.texto).fixedSize()
+            }
+            if f.alerta != nil || !f.proximos.isEmpty { FiloCentro().padding(.vertical, 2) }
+            if let alerta = f.alerta {
+                Label(alerta, systemImage: "exclamationmark.circle").font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Tono.ambar.claro).lineLimit(2)
+            }
+            ForEach(Array(f.proximos.prefix(2).enumerated()), id: \.offset) { _, p in
+                HStack(spacing: 8) {
+                    Text(p.concepto).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
+                    Spacer()
+                    Text(p.fecha).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
+                    Text("$" + miles(Int(p.monto))).font(.system(size: 12, weight: .medium)).monospacedDigit()
+                        .foregroundStyle(Halo.texto).frame(width: 74, alignment: .trailing)
+                }
+            }
+        }
+    }
+
+    private var actualizado: String {
+        guard let d = f.diasSinActualizar else { return "Al \(f.actualizado)" }
+        return d == 0 ? "Actualizado hoy" : (d == 1 ? "Actualizado ayer" : "Actualizado hace \(d) días")
+    }
+
+    private func fila(_ r: String, _ v: String) -> some View {
+        HStack {
+            Text(r).font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
+            Spacer()
+            Text(v).font(.system(size: 13, weight: .medium)).monospacedDigit().foregroundStyle(Halo.texto)
+        }
+    }
+}
+
+private struct RadarCentro: View {
+    let items: [EstadoCentro.Noticia]
+    let ctx: ContextoCentro
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            CabeceraVentana(titulo: "En tu radar", detalle: "Lo que se movió en tus frentes")
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(Array(items.enumerated()), id: \.offset) { _, x in
+                    Button { if let u = x.url { ctx.abrir(u) } } label: {
+                        fila(x).padding(.vertical, 6).padding(.horizontal, 8).modifier(EncimaCentro(radio: 12))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, -8)
+                    .help(x.url == nil ? "" : "Abrir la noticia")
+                }
+            }
+        }
+    }
+
+    private func fila(_ x: EstadoCentro.Noticia) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle().fill(colorVertical(x.vertical)).frame(width: 6, height: 6).padding(.top, 6)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(x.titulo).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !x.porQue.isEmpty {
+                    Text(x.porQue).font(.system(size: 11.5)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
+                }
+                Text("\(x.vertical) · \(x.fuente) · \(x.fecha)").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+    }
+}
+
+/// Debajo de Hoy: las tres metas que mandan (semana, mes, trimestre). Al tocarlo se va a Metas.
+private struct MetasDebajoCentro: View {
+    let m: EstadoCentro.Metas
+    let accion: () -> Void
+    @State private var encima = false
+
+    var body: some View {
+        Button(action: accion) {
+            HStack(spacing: 0) {
+                ForEach(Array([m.semana, m.mes, m.trimestre].enumerated()), id: \.offset) { i, h in
+                    if i > 0 { Rectangle().fill(Halo.linea).frame(width: 0.75).padding(.vertical, 16) }
+                    columna(h)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(.white.opacity(encima ? 0.05 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Ver tus metas (⌘2)")
+        .onHover { encima = $0 }
+        .ornamento(radio: 26)
+    }
+
+    private func columna(_ h: EstadoCentro.Horizonte) -> some View {
+        let hechas = h.metas.filter { $0.estado == "hecha" }.count
+        let principal = h.metas.first { $0.estado != "hecha" } ?? h.metas.first
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Rotulo(h.nombre, color: TextoCentro.terciario)
+                Spacer()
+                Text("\(hechas) de \(h.metas.count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(TextoCentro.terciario)
+            }
+            Text(principal?.texto ?? (h.vigente == false ? "Define las metas de esta semana" : "—"))
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+            HStack(spacing: 8) {
+                Regla(valor: h.tiempo, tono: .neutro, cuantas: 26, alto: 8, grosor: 1)
+                Text("\(Int((h.tiempo * 100).rounded())) % del tiempo").font(.system(size: 11)).monospacedDigit()
+                    .foregroundStyle(TextoCentro.terciario).fixedSize()
+            }
+        }
+        .padding(.horizontal, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -173,350 +582,6 @@ private struct SinConfigurar: View {
         }
         .padding(40)
         .frame(maxWidth: 640, maxHeight: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Barras
-
-private struct BarraCentro: View {
-    let estado: EstadoCentro?
-    let ctx: ContextoCentro
-    @Binding var seccion: SeccionCentro
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle().fill(RadialGradient(colors: [.white.opacity(0.9), Tono.azul.base.opacity(0.4), .clear], center: .center,
-                                                 startRadius: 0, endRadius: 14))
-                    Circle().strokeBorder(.white.opacity(0.4), lineWidth: 0.75)
-                }
-                .frame(width: 26, height: 26)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text("Centro de mando").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto)
-                    Text(estado?.brief?.fecha ?? "—").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
-                }
-            }
-            .padding(.horizontal, 20).padding(.top, ctx.enVentana ? 46 : 22).padding(.bottom, 24)
-            Rotulo("Espacio", color: TextoCentro.terciario).padding(.horizontal, 22).padding(.bottom, 6)
-            ForEach(SeccionCentro.allCases, id: \.self) { s in
-                FilaNavCentro(seccion: s, activa: s == seccion, cuenta: cuenta(s), aviso: s == .orquesta) { seccion = s }
-            }
-            if let modulos = estado?.modulos, !modulos.isEmpty {
-                Rotulo("Módulos", color: TextoCentro.terciario).padding(.horizontal, 22).padding(.top, 18).padding(.bottom, 6)
-                ForEach(modulos, id: \.nombre) { m in
-                    FilaModuloCentro(m: m) { if let a = m.abrir { ctx.abrir(a) } }
-                }
-            }
-            Spacer()
-            EstadoConexion(estado: estado, ctx: ctx)
-                .padding(.horizontal, 22).padding(.bottom, 18)
-        }
-        .frame(maxHeight: .infinity, alignment: .top)
-        .background(Color.black.opacity(0.08))
-    }
-
-    private func cuenta(_ s: SeccionCentro) -> Int {
-        switch s {
-        case .orquesta: return (estado?.orquesta?.aprobaciones.count ?? 0) + ctx.esperando.count
-        case .inbox: return estado?.inbox?.items.count ?? 0
-        default: return 0
-        }
-    }
-}
-
-private struct FilaNavCentro: View {
-    let seccion: SeccionCentro
-    let activa: Bool
-    let cuenta: Int
-    let aviso: Bool
-    let accion: () -> Void
-    @State private var encima = false
-
-    var body: some View {
-        Button(action: accion) {
-            HStack(spacing: 11) {
-                Image(systemName: seccion.simbolo).font(.system(size: 12.5, weight: .medium)).frame(width: 18)
-                Text(seccion.titulo).font(.system(size: 13, weight: activa ? .semibold : .regular))
-                Spacer()
-                if cuenta > 0 {
-                    if aviso { PuntoBrillante(color: Tono.claude.base, lado: 5) }
-                    Text("\(cuenta)").font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                        .padding(.horizontal, 7).frame(height: 18).background(Capsule().fill(.white.opacity(0.1)))
-                }
-            }
-            .foregroundStyle(activa || encima ? Halo.texto : TextoCentro.secundario)
-            .padding(.horizontal, 12).frame(height: 34)
-            .contentShape(Rectangle())
-            .background {
-                let forma = RoundedRectangle(cornerRadius: 11, style: .continuous)
-                if activa {
-                    forma.fill(Color.white.opacity(0.12))
-                        .overlay(forma.strokeBorder(Color.white.opacity(0.16), lineWidth: 0.75))
-                        .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
-                } else if encima {
-                    forma.fill(Color.white.opacity(0.05))
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .onHover { encima = $0 }
-        .padding(.horizontal, 10)
-    }
-}
-
-private struct FilaModuloCentro: View {
-    let m: EstadoCentro.Modulo
-    let accion: () -> Void
-    @State private var encima = false
-
-    var body: some View {
-        Button(action: accion) {
-            HStack(spacing: 9) {
-                Circle().fill(colorVertical(m.nombre)).frame(width: 6, height: 6).frame(width: 18)
-                Text(m.nombre).font(.system(size: 12.5)).foregroundStyle(encima ? Halo.texto : TextoCentro.secundario)
-                    .lineLimit(1).fixedSize()
-                Spacer(minLength: 6)
-                Text(m.valor).font(.system(size: 11)).monospacedDigit().foregroundStyle(TextoCentro.terciario)
-                    .lineLimit(1).minimumScaleFactor(0.8)
-                if m.abrir != nil {
-                    Image(systemName: "arrow.up.right").font(.system(size: 8.5, weight: .semibold))
-                        .foregroundStyle(encima ? Halo.texto : TextoCentro.terciario)
-                }
-            }
-            .padding(.horizontal, 12).frame(height: 30)
-            .contentShape(Rectangle())
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.white.opacity(encima ? 0.05 : 0)))
-        }
-        .buttonStyle(.plain)
-        .disabled(m.abrir == nil)
-        .onHover { encima = $0 }
-        .padding(.horizontal, 10)
-    }
-}
-
-private struct EstadoConexion: View {
-    let estado: EstadoCentro?
-    let ctx: ContextoCentro
-
-    var body: some View {
-        let rotas = (estado?.salud?.capacidades ?? []).filter { $0.estado == "rota" || $0.estado == "alerta" }
-        let color: Color = (estado?.vps == false || ctx.error != nil) ? Tono.rojo.base
-            : (rotas.isEmpty ? Tono.verde.base : Tono.ambar.base)
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                PuntoBrillante(color: color, lado: 6)
-                Text(titulo(rotas)).font(.system(size: 11, weight: .medium)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
-            }
-            if let leido = ctx.leido {
-                Text("Leído \(hace(leido))").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).padding(.leading, 14)
-            }
-        }
-    }
-
-    private func titulo(_ rotas: [EstadoCentro.Capacidad]) -> String {
-        if estado?.vps == false || ctx.error != nil { return "Sin conexión con el VPS" }
-        if let r = rotas.first { return "\(r.nombre): \(r.estado)" }
-        return "VPS bien · todo vivo"
-    }
-}
-
-private struct BarraSuperiorCentro: View {
-    let estado: EstadoCentro?
-    let ctx: ContextoCentro
-    let seccion: SeccionCentro
-
-    var body: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 6) {
-                Text("Centro de mando").foregroundStyle(TextoCentro.terciario)
-                Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(TextoCentro.terciario)
-                Text(seccion.titulo).foregroundStyle(Halo.texto)
-            }
-            .font(.system(size: 14, weight: .semibold))
-            Spacer()
-            if !ctx.sesiones.isEmpty {
-                chip("\(ctx.sesiones.count) sesiones de Claude", ctx.esperando.isEmpty ? Tono.claude.base.opacity(0.6) : Tono.claude.base)
-            }
-            if let o = estado?.orquesta {
-                chip(o.hermesConectado == false ? "Hermes sin datos" : "Hermes · VPS",
-                     o.hermesConectado == false ? Tono.ambar.base : Tono.verde.base)
-            }
-            BotonCentro(titulo: ctx.cargando ? "Actualizando…" : "Actualizar", icono: "arrow.clockwise", accion: ctx.actualizar)
-                .disabled(ctx.cargando)
-        }
-        .padding(.horizontal, 24)
-    }
-
-    private func chip(_ t: String, _ c: Color) -> some View {
-        HStack(spacing: 6) {
-            PuntoBrillante(color: c, lado: 6)
-            Text(t).font(.system(size: 11.5, weight: .medium)).foregroundStyle(TextoCentro.secundario)
-        }
-        .padding(.horizontal, 10).frame(height: 28)
-        .background(Capsule().fill(.white.opacity(0.05)))
-    }
-}
-
-// MARK: - Hoy
-
-private struct EscenaHoyCentro: View {
-    let e: EstadoCentro
-    let ctx: ContextoCentro
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let b = e.brief {
-                CabeceraBriefCentro(b: b).frame(height: 84)
-            }
-            FichasCentro(e: e, ctx: ctx)
-            HStack(alignment: .top, spacing: 16) {
-                if let b = e.brief {
-                    TarjetaBriefCentro(b: b).fixedSize(horizontal: false, vertical: true)
-                } else {
-                    Vacio(texto: "El brief de hoy todavía no se ha generado: sale a las 5:30 en tu VPS.").superficie(radio: 20)
-                }
-                VStack(spacing: 16) {
-                    if let f = e.finanzas { TarjetaFinanzasCentro(f: f, ctx: ctx).fixedSize(horizontal: false, vertical: true) }
-                    if let n = e.noticias, !n.items.isEmpty { TarjetaRadarCentro(items: Array(n.items.prefix(3)), ctx: ctx) }
-                }
-                .frame(width: 400)
-            }
-            .frame(maxHeight: .infinity)
-            if let m = e.metas { FranjaMetasCentro(m: m).frame(height: 112) }
-        }
-        .padding(.horizontal, 28).padding(.vertical, 22)
-    }
-}
-
-private struct CabeceraBriefCentro: View {
-    let b: EstadoCentro.Brief
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 28) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 10) {
-                    Rotulo("\(b.fecha) · semana \(b.semana)", color: TextoCentro.terciario)
-                    if !esHoy(b.fechaIso) {
-                        Text("Es de otro día: el brief de hoy aún no sale").font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(Tono.ambar.claro).padding(.horizontal, 8).frame(height: 20)
-                            .background(Capsule().fill(Tono.ambar.base.opacity(0.14)))
-                    }
-                }
-                Text("Tu brief del día").font(.system(size: 34, weight: .thin)).foregroundStyle(Halo.texto)
-                HStack(spacing: 6) {
-                    EstrellaClaude().fill(Tono.claude.claro).frame(width: 10, height: 10)
-                    Text(generado).font(.system(size: 11.5)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
-                }
-            }
-            Spacer()
-            if let c = b.clima {
-                Rectangle().fill(Halo.linea).frame(width: 1, height: 64)
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Rotulo(c.ciudad, color: TextoCentro.terciario)
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text("\(c.temp)°").font(.system(size: 34, weight: .thin)).foregroundStyle(Halo.texto)
-                            Text(c.cielo).font(.system(size: 12, weight: .medium)).foregroundStyle(TextoCentro.secundario)
-                        }
-                        Text(detalleClima(c)).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
-                    }
-                    Image(systemName: c.simbolo).font(.system(size: 26, weight: .ultraLight)).foregroundStyle(TextoCentro.secundario)
-                }
-            }
-        }
-    }
-
-    private var generado: String {
-        var partes = ["Generado por \(b.modelo)"]
-        if let h = horaCorta(b.generado) { partes.append(h) }
-        if let f = b.fuentes { partes.append("\(f) fuentes") }
-        return partes.joined(separator: " · ")
-    }
-
-    private func detalleClima(_ c: EstadoCentro.Brief.Clima) -> String {
-        var t = "Máx \(c.max)° · mín \(c.min)°"
-        if b.agendaLeida == true { t += (b.agenda ?? []).isEmpty ? " · sin reuniones" : " · \((b.agenda ?? []).count) en agenda" }
-        return t
-    }
-}
-
-private struct FichasCentro: View {
-    let e: EstadoCentro
-    let ctx: ContextoCentro
-
-    var body: some View {
-        HStack(spacing: 8) {
-            let piden = (e.orquesta?.aprobaciones.count ?? 0) + ctx.esperando.count
-            ficha("checkmark.seal", piden == 1 ? "1 pide tu sí" : "\(piden) piden tu sí", punto: piden > 0 ? Tono.claude.base : nil)
-            if let l = e.local { ficha("tray", "\(l.inbox) en el inbox", punto: nil) }
-            if e.brief?.agendaLeida == true {
-                let n = e.brief?.agenda?.count ?? 0
-                ficha("calendar", n == 0 ? "Agenda libre" : "\(n) en la agenda", punto: nil)
-            }
-            ficha("sparkles", "\(ctx.trabajando.count) agentes trabajando", punto: nil)
-            Spacer()
-        }
-        .frame(height: 30)
-    }
-
-    private func ficha(_ icono: String, _ t: String, punto: Color?) -> some View {
-        HStack(spacing: 7) {
-            if let punto { PuntoBrillante(color: punto, lado: 5) }
-            Image(systemName: icono).font(.system(size: 11, weight: .medium))
-            Text(t).font(.system(size: 11.5, weight: .medium))
-        }
-        .foregroundStyle(TextoCentro.secundario)
-        .padding(.horizontal, 12).frame(height: 28)
-        .background(Capsule().fill(.white.opacity(0.05)))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.07), lineWidth: 0.75))
-    }
-}
-
-private struct TarjetaBriefCentro: View {
-    let b: EstadoCentro.Brief
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Rotulo("El foco", color: Tono.ambar.claro)
-            Text(b.foco.titulo).font(.system(size: 19)).foregroundStyle(Halo.texto)
-                .lineSpacing(2).fixedSize(horizontal: false, vertical: true).padding(.top, 10)
-            Text(b.foco.porque).font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
-                .lineSpacing(3).fixedSize(horizontal: false, vertical: true).padding(.top, 8)
-                .frame(maxWidth: 640, alignment: .leading)
-            HStack(alignment: .firstTextBaseline) {
-                Text("Prioridades").font(.system(size: 15, weight: .semibold)).foregroundStyle(Halo.texto)
-                Spacer()
-                Text("\(b.prioridades.filter(\.hecha).count) de \(b.prioridades.count) hechas").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
-            }
-            .padding(.top, 22)
-            VStack(spacing: 0) {
-                ForEach(Array(b.prioridades.prefix(3).enumerated()), id: \.offset) { i, p in
-                    FiloCentro()
-                    FilaPrioridadCentro(numero: i + 1, p: p)
-                }
-                FiloCentro()
-            }
-            .padding(.top, 10)
-            if !b.buenoSaber.isEmpty {
-                Rotulo("Bueno saber", color: TextoCentro.terciario).padding(.top, 20)
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(Array(b.buenoSaber.prefix(3).enumerated()), id: \.offset) { _, t in
-                        HStack(alignment: .top, spacing: 9) {
-                            Circle().fill(.white.opacity(0.4)).frame(width: 3, height: 3).padding(.top, 7)
-                            Text(t).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                .padding(.top, 9)
-                .frame(maxWidth: 680, alignment: .leading)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .levantado(radio: 22, tono: .ambar)
     }
 }
 
@@ -553,131 +618,9 @@ private struct FilaPrioridadCentro: View {
     }
 }
 
-/// Finanzas en resumen, sin cifra de vitrina: lo que importa en una lista corta y el colchón como regla de marcas.
-/// El detalle vive en el tablero real (el enlace).
-private struct TarjetaFinanzasCentro: View {
-    let f: EstadoCentro.Finanzas
-    let ctx: ContextoCentro
-
-    var body: some View {
-        let derecha: AnyView? = f.enlace.map { e in AnyView(enlace("Abrir el tablero") { ctx.abrir(e) }) }
-        let piso = f.colchonPiso > 0 ? min(1, f.colchon / f.colchonPiso) : 0
-        TarjetaCentro(rotulo: "Finanzas", derecha: derecha) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Patrimonio neto").font(.system(size: 12)).foregroundStyle(TextoCentro.secundario)
-                    Spacer()
-                    Text(millonesCOP(f.patrimonio)).font(.system(size: 20, weight: .light)).monospacedDigit().foregroundStyle(Halo.texto)
-                    Text(millonesCOP(f.delta, signo: true)).font(.system(size: 11, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(f.delta >= 0 ? Tono.verde.claro : Tono.rojo.claro)
-                }
-                fila("Liquidez", millonesCOP(f.liquidez))
-                fila("Neto del mes", millonesCOP(f.netoMes, signo: true))
-                HStack(spacing: 10) {
-                    Text("Colchón").font(.system(size: 12)).foregroundStyle(TextoCentro.secundario)
-                    Regla(valor: piso, tono: .neutro, cuantas: 30, alto: 9, grosor: 1)
-                    Text("\(Int((piso * 100).rounded())) % del piso").font(.system(size: 11.5, weight: .medium)).monospacedDigit()
-                        .foregroundStyle(Halo.texto).fixedSize()
-                }
-                FiloCentro().padding(.vertical, 2)
-                if let alerta = f.alerta {
-                    Label(alerta, systemImage: "exclamationmark.circle").font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(Tono.ambar.claro).lineLimit(2)
-                }
-                ForEach(Array(f.proximos.prefix(2).enumerated()), id: \.offset) { _, p in
-                    HStack(spacing: 8) {
-                        Text(p.concepto).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
-                        Spacer()
-                        Text(p.fecha).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
-                        Text("$" + miles(Int(p.monto))).font(.system(size: 12, weight: .medium)).monospacedDigit()
-                            .foregroundStyle(Halo.texto).frame(width: 74, alignment: .trailing)
-                    }
-                }
-            }
-        }
-    }
-
-    private func fila(_ r: String, _ v: String) -> some View {
-        HStack {
-            Text(r).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario)
-            Spacer()
-            Text(v).font(.system(size: 12.5, weight: .medium)).monospacedDigit().foregroundStyle(Halo.texto)
-        }
-    }
-}
-
-private struct TarjetaRadarCentro: View {
-    let items: [EstadoCentro.Noticia]
-    let ctx: ContextoCentro
-
-    var body: some View {
-        TarjetaCentro(rotulo: "En tu radar") {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(Array(items.enumerated()), id: \.offset) { _, x in
-                    Button { if let u = x.url { ctx.abrir(u) } } label: {
-                        fila(x).padding(.vertical, 4).padding(.horizontal, 6).modifier(EncimaCentro(radio: 10))
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, -6)
-                }
-            }
-        }
-    }
-
-    private func fila(_ x: EstadoCentro.Noticia) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Circle().fill(colorVertical(x.vertical)).frame(width: 6, height: 6).padding(.top, 5)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(x.titulo).font(.system(size: 12, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if !x.porQue.isEmpty {
-                    Text(x.porQue).font(.system(size: 11)).foregroundStyle(TextoCentro.secundario).lineLimit(1)
-                }
-                Text("\(x.vertical) · \(x.fuente) · \(x.fecha)").font(.system(size: 10.5)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
-            }
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-    }
-}
-
-private struct FranjaMetasCentro: View {
-    let m: EstadoCentro.Metas
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array([m.semana, m.mes, m.trimestre].enumerated()), id: \.offset) { i, h in
-                if i > 0 { Rectangle().fill(Halo.linea).frame(width: 0.75).padding(.vertical, 16) }
-                columna(h)
-            }
-        }
-        .superficie(radio: 18)
-    }
-
-    private func columna(_ h: EstadoCentro.Horizonte) -> some View {
-        let hechas = h.metas.filter { $0.estado == "hecha" }.count
-        let principal = h.metas.first { $0.estado != "hecha" } ?? h.metas.first
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Rotulo(h.nombre, color: TextoCentro.terciario)
-                Spacer()
-                Text("\(hechas) de \(h.metas.count)").font(.system(size: 11)).monospacedDigit().foregroundStyle(TextoCentro.terciario)
-            }
-            Text(principal?.texto ?? (h.vigente == false ? "Define las metas de esta semana" : "—"))
-                .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
-            HStack(spacing: 10) {
-                Regla(valor: h.tiempo, tono: .neutro, cuantas: 34, alto: 9, grosor: 1)
-                Text("\(Int((h.tiempo * 100).rounded())) % del tiempo").font(.system(size: 11)).monospacedDigit()
-                    .foregroundStyle(TextoCentro.terciario).fixedSize()
-            }
-        }
-        .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
 // MARK: - Metas
 
+/// Metas: la semana, el mes y el trimestre, cada uno en su ventana; debajo, el trimestre como regla con sus hitos.
 private struct EscenaMetasCentro: View {
     let metas: EstadoCentro.Metas
     let ctx: ContextoCentro
@@ -693,30 +636,29 @@ private struct EscenaMetasCentro: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Rotulo(metas.borrador == true ? "Metas · borrador para que decidas" : "Metas", color: TextoCentro.terciario)
-                    Text("¿Hacia dónde vas?").font(.system(size: 34, weight: .thin)).foregroundStyle(Halo.texto)
-                    Text("Elige un resultado y dale una fecha. Las prioridades de cada mañana salen de aquí.")
-                        .font(.system(size: 13)).foregroundStyle(TextoCentro.secundario)
-                }
-                Spacer()
+        EspacioCentro {
+            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.semana, dibujo: .semana, hito: hito) }
+        } centro: {
+            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.mes, dibujo: .mes, hito: hito) }
+        } derecha: {
+            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.trimestre, dibujo: .trimestre, hito: hito) }
+        } debajo: {
+            HStack(spacing: 22) {
+                ReglaTrimestreCentro(t: metas.trimestre, hitos: metas.hitos ?? []).frame(height: 46)
                 if let a = metas.archivo {
-                    BotonCentro(titulo: "Editar metas", icono: "square.and.pencil", tipo: .principal) { ctx.abrir(a) }
+                    VStack(alignment: .trailing, spacing: 5) {
+                        BotonCentro(titulo: "Editar metas", icono: "square.and.pencil", tipo: .principal) { ctx.abrir(a) }
+                        if metas.borrador == true {
+                            Text("Borrador para que decidas").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
+                        }
+                    }
+                    .fixedSize()
                 }
             }
-            ReglaTrimestreCentro(t: metas.trimestre, hitos: metas.hitos ?? []).frame(height: 46)
-            HStack(alignment: .top, spacing: 0) {
-                TarjetaHorizonteCentro(h: metas.semana, dibujo: .semana, hito: hito, archivo: metas.archivo, ctx: ctx)
-                Rectangle().fill(Halo.linea).frame(width: 0.75).padding(.vertical, 24)
-                TarjetaHorizonteCentro(h: metas.mes, dibujo: .mes, hito: hito, archivo: metas.archivo, ctx: ctx)
-                Rectangle().fill(Halo.linea).frame(width: 0.75).padding(.vertical, 24)
-                TarjetaHorizonteCentro(h: metas.trimestre, dibujo: .trimestre, hito: hito, archivo: metas.archivo, ctx: ctx)
-            }
-            .superficie(radio: 22)
+            .padding(.horizontal, 24)
+            .frame(maxHeight: .infinity)
+            .ornamento(radio: 26)
         }
-        .padding(.horizontal, 28).padding(.vertical, 22)
     }
 }
 
@@ -796,8 +738,6 @@ private struct TarjetaHorizonteCentro: View {
     let h: EstadoCentro.Horizonte
     let dibujo: DibujoCentro
     let hito: Date?
-    let archivo: String?
-    let ctx: ContextoCentro
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -834,10 +774,6 @@ private struct TarjetaHorizonteCentro: View {
             }
             .padding(.horizontal, 18)
             Spacer(minLength: 12)
-            if let archivo {
-                BotonCentro(titulo: "Editar en \(archivo)", icono: "arrow.up.right", tipo: .enlace) { ctx.abrir(archivo) }
-                    .padding(.horizontal, 22).padding(.bottom, 20)
-            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -907,7 +843,7 @@ private struct VentanitaCentro<C: View>: View {
         }
         .padding(12)
         .background {   // opaco a propósito: en el trimestre se apilan y no deben verse unos a través de otros
-            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.23))
+            RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(white: 0.29))
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(LinearGradient(colors: [.white.opacity(0.07), .clear], startPoint: .top, endPoint: .center)))
         }
@@ -1026,93 +962,102 @@ private struct TrimestreDibujo: View {
 
 // MARK: - Orquesta
 
+/// Orquesta: lo que pide tu sí a la izquierda (se enciende si hay algo), lo que pasa ahora y la semana de tus agentes
+/// al frente, lo programado y lo hecho a la derecha; debajo, cuánto va costando.
 private struct EscenaOrquestaCentro: View {
     let e: EstadoCentro
     let ctx: ContextoCentro
 
     var body: some View {
         let o = e.orquesta
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Rotulo("Orquesta", color: TextoCentro.terciario)
-                    Text("Tus agentes").font(.system(size: 34, weight: .thin)).foregroundStyle(Halo.texto)
-                    Text("Claude Code en el Mac y Hermes en el VPS. Nada sale ni se mueve sin tu sí.")
-                        .font(.system(size: 13)).foregroundStyle(TextoCentro.secundario)
-                }
-                Spacer()
-                if let o, o.costoDisponible != false { GastoCentro(o: o) }
-            }
-            HStack(alignment: .top, spacing: 14) {
-                ColumnaCentro(titulo: "Piden tu sí", cuenta: (o?.aprobaciones.count ?? 0) + ctx.esperando.count, tono: .claude,
-                              vacio: "Nada pide tu sí ahora. Cuando una sesión de Claude o un agente necesite una decisión, aparece aquí.") {
-                    ForEach(ctx.esperando) { s in TarjetaSesion(s: s, ctx: ctx) }
-                    ForEach(Array((o?.aprobaciones ?? []).enumerated()), id: \.offset) { i, t in
-                        TarjetaAprobacion(t: t, primera: i == 0 && ctx.esperando.isEmpty)
+        let piden = (o?.aprobaciones.count ?? 0) + ctx.esperando.count
+        EspacioCentro {
+            VentanaEspacio(tono: piden > 0 ? .claude : nil) {
+                VStack(alignment: .leading, spacing: 14) {
+                    CabeceraVentana(titulo: "Piden tu sí", detalle: piden == 0 ? "Nada espera una decisión"
+                                    : (piden == 1 ? "1 decisión te espera" : "\(piden) decisiones te esperan"))
+                    if piden == 0 {
+                        VStack(spacing: 12) {
+                            Image(systemName: "checkmark.seal").font(.system(size: 30, weight: .ultraLight)).foregroundStyle(TextoCentro.secundario)
+                            Text("Cuando una sesión de Claude o un agente necesite tu sí, aparece aquí y se enciende.")
+                                .font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario).multilineTextAlignment(.center)
+                        }
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        ForEach(ctx.esperando) { s in TarjetaSesion(s: s, ctx: ctx) }
+                        ForEach(Array((o?.aprobaciones ?? []).enumerated()), id: \.offset) { i, t in
+                            TarjetaAprobacion(t: t, primera: i == 0 && ctx.esperando.isEmpty)
+                        }
+                        Spacer(minLength: 0)
                     }
                 }
-                .frame(width: 330)
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top, spacing: 22) {
-                        ColumnaCentro(titulo: "Trabajando", cuenta: ctx.trabajando.count + (o?.trabajando.count ?? 0),
-                                      vacio: "Nadie trabajando.") {
-                            ForEach(ctx.trabajando.prefix(4)) { s in TarjetaTrabajoSesion(s: s) }
-                            ForEach(Array((o?.trabajando ?? []).enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: false) }
-                        }
-                        ColumnaCentro(titulo: "Programado", cuenta: o?.programado.count ?? 0, vacio: "Nada programado.") {
-                            ForEach(Array((o?.programado ?? []).prefix(5).enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: false) }
-                        }
-                        ColumnaCentro(titulo: "Hecho hoy", cuenta: o?.hecho.count ?? 0, vacio: "Nada todavía.") {
-                            ForEach(Array((o?.hecho ?? []).prefix(5).enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: true) }
-                        }
+            }
+        } centro: {
+            VentanaEspacio {
+                VStack(alignment: .leading, spacing: 12) {
+                    CabeceraVentana(titulo: "Ahora", detalle: ahora(o))
+                    let tareas = o?.trabajando ?? []
+                    if ctx.trabajando.isEmpty && tareas.isEmpty {
+                        Text("Nadie trabajando en este momento.").font(.system(size: 12)).foregroundStyle(TextoCentro.terciario)
                     }
-                    .padding(18)
-                    .superficie(radio: 18)
-                    if let c = o?.calendario, !c.filas.isEmpty { SemanaAgentesCentro(c: c).frame(minHeight: 220) }
+                    VStack(spacing: 0) {
+                        ForEach(ctx.trabajando.prefix(3)) { s in TarjetaTrabajoSesion(s: s) }
+                        ForEach(Array(tareas.enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: false) }
+                    }
+                    if let c = o?.calendario, !c.filas.isEmpty {
+                        SemanaAgentesCentro(c: c).frame(maxHeight: .infinity).padding(.top, 8)
+                    } else {
+                        Spacer(minLength: 0)
+                    }
                 }
             }
-            .frame(maxHeight: .infinity, alignment: .top)
+        } derecha: {
+            VentanaEspacio {
+                VStack(alignment: .leading, spacing: 10) {
+                    let programado = o?.programado ?? []
+                    let hecho = o?.hecho ?? []
+                    CabeceraVentana(titulo: "Programado", detalle: programado.isEmpty ? "Nada por correr" : "Lo que corre en los próximos días")
+                    VStack(spacing: 0) {
+                        ForEach(Array(programado.prefix(4).enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: false) }
+                    }
+                    Rotulo("Hecho hoy · \(hecho.count)", color: TextoCentro.terciario).padding(.top, 10)
+                    if hecho.isEmpty {
+                        Text("Nada todavía.").font(.system(size: 12)).foregroundStyle(TextoCentro.terciario)
+                    }
+                    VStack(spacing: 0) {
+                        ForEach(Array(hecho.prefix(4).enumerated()), id: \.offset) { _, t in FilaTareaCentro(t: t, hecha: true) }
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+        } debajo: {
+            if let o, o.costoDisponible != false { GastoDebajoCentro(o: o) }
         }
-        .padding(.horizontal, 28).padding(.vertical, 22)
+    }
+
+    private func ahora(_ o: EstadoCentro.Orquesta?) -> String {
+        let n = ctx.trabajando.count + (o?.trabajando.count ?? 0)
+        let h = o?.hecho.count ?? 0
+        return (n == 1 ? "1 trabajando" : "\(n) trabajando") + " · " + (h == 1 ? "1 hecha hoy" : "\(h) hechas hoy")
     }
 }
 
-private struct GastoCentro: View {
+/// Debajo de Orquesta: lo que va costando Hermes hoy y en el mes, contra el presupuesto.
+private struct GastoDebajoCentro: View {
     let o: EstadoCentro.Orquesta
 
     var body: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            Cifra(numero: String(format: "%.2f", o.costoHoy).replacingOccurrences(of: ".", with: ","), unidad: "USD hoy", tamano: 30)
-            Liquido(valor: o.presupuestoDia > 0 ? min(1, o.costoHoy / o.presupuestoDia) : 0, tono: .neutro, alto: 4).frame(width: 200)
-            Text("de \(String(format: "%.2f", o.presupuestoDia).replacingOccurrences(of: ".", with: ",")) al día · el mes va en "
-                 + "\(String(format: "%.2f", o.costoMes).replacingOccurrences(of: ".", with: ",")) de \(Int(o.presupuestoMes))")
-                .font(.system(size: 11)).monospacedDigit().foregroundStyle(TextoCentro.terciario)
+        HStack(spacing: 18) {
+            Cifra(numero: usd(o.costoHoy), unidad: "USD hoy", tamano: 26)
+            Liquido(valor: o.presupuestoDia > 0 ? min(1, o.costoHoy / o.presupuestoDia) : 0, tono: .neutro, alto: 4).frame(width: 150)
+            Text("de \(usd(o.presupuestoDia)) al día · el mes va en \(usd(o.costoMes)) de \(Int(o.presupuestoMes))")
+                .font(.system(size: 12)).monospacedDigit().foregroundStyle(TextoCentro.secundario)
         }
-    }
-}
-
-private struct ColumnaCentro<C: View>: View {
-    let titulo: String
-    let cuenta: Int
-    var tono: Tono?
-    let vacio: String
-    @ViewBuilder let contenido: () -> C
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Rotulo(titulo, color: cuenta > 0 ? (tono?.claro ?? TextoCentro.terciario) : TextoCentro.terciario)
-                Text("\(cuenta)").font(.system(size: 11, weight: .semibold)).monospacedDigit().foregroundStyle(TextoCentro.secundario)
-                    .padding(.horizontal, 6).frame(height: 16).background(Capsule().fill(.white.opacity(0.08)))
-                Spacer()
-            }
-            .frame(height: 18)
-            if cuenta == 0 {
-                Text(vacio).font(.system(size: 11.5)).foregroundStyle(TextoCentro.terciario).padding(.top, 2)
-            }
-            contenido()
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(.horizontal, 26)
+        .frame(maxHeight: .infinity)
+        .fixedSize(horizontal: true, vertical: false)
+        .ornamento(radio: 26)
     }
 }
 
@@ -1234,13 +1179,14 @@ private struct SemanaAgentesCentro: View {
     private let etiqueta: CGFloat = 132
 
     var body: some View {
-        TarjetaCentro(rotulo: "La semana de tus agentes") {
+        VStack(alignment: .leading, spacing: 12) {
+            Rotulo("La semana de tus agentes", color: TextoCentro.terciario)
             GeometryReader { g in
                 let ancho = (g.size.width - etiqueta) / CGFloat(max(1, c.dias.count))
                 let alto = (g.size.height - 22) / CGFloat(max(1, c.filas.count))
                 ZStack(alignment: .topLeading) {
                     ForEach(Array(c.dias.enumerated()), id: \.offset) { i, d in
-                        Text(d).font(.system(size: 10.5, weight: i == 0 ? .semibold : .regular))
+                        Text(d).font(.system(size: 11, weight: i == 0 ? .semibold : .regular))
                             .foregroundStyle(i == 0 ? Halo.texto : TextoCentro.terciario)
                             .offset(x: etiqueta + CGFloat(i) * ancho + 4, y: 0)
                         Rectangle().fill(Halo.linea).frame(width: 0.5, height: max(0, g.size.height - 18))
@@ -1291,157 +1237,236 @@ private struct SemanaAgentesCentro: View {
 
 // MARK: - Inbox
 
+/// Inbox: el resumen y la acción en bloque a la izquierda, tus capturas al frente y, a la derecha, la que elegiste
+/// con lo que propone Claude (es la decisión: su borde se enciende).
 private struct EscenaInboxCentro: View {
     let e: EstadoCentro
     let ctx: ContextoCentro
+    @State private var elegida: String?
     @State private var confirmar = false
 
     private var items: [EstadoCentro.Propuesta] { e.inbox?.items ?? [] }
+    private var actual: EstadoCentro.Propuesta? { items.first { $0.id == elegida } ?? items.first }
     private var archivables: [EstadoCentro.Propuesta] { items.filter { $0.accion == "archivar" && !ctx.aplicando.contains($0.id) } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Rotulo("Inbox", color: TextoCentro.terciario)
-                    Text("Lo que capturaste").font(.system(size: 34, weight: .thin)).foregroundStyle(Halo.texto)
-                    Text(resumen).font(.system(size: 13)).foregroundStyle(TextoCentro.secundario)
-                }
-                Spacer()
-                if ctx.puedeActuar && archivables.count > 1 {
-                    BotonCentro(titulo: "Archivar las \(archivables.count) viejas", icono: "archivebox", tipo: .principal) { confirmar = true }
-                    .confirmationDialog("¿Archivar \(archivables.count) capturas?", isPresented: $confirmar) {
-                        Button("Archivar \(archivables.count)") { for p in archivables { ctx.aplicarInbox(p.id, "archivar", nil) } }
-                        Button("Cancelar", role: .cancel) {}
-                    } message: {
-                        Text("Se mueven a Archivo/inbox/ con git: nada se borra y todo se puede recuperar. Cada una deja su línea CONFIRMADO en el log.")
+        EspacioCentro {
+            VentanaEspacio { resumen }
+        } centro: {
+            VentanaEspacio(relleno: 0) { lista }
+        } derecha: {
+            if let p = actual {
+                VentanaEspacio(tono: .claude) { DetalleCaptura(p: p, destinos: e.inbox?.destinos ?? [], ctx: ctx) }
+            } else {
+                VentanaEspacio { Vacio(texto: "Nada que decidir.") }
+            }
+        }
+    }
+
+    private var resumen: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            CabeceraVentana(titulo: "Inbox", detalle: items.isEmpty ? "Al día" : "\(items.count) capturas por clasificar")
+            VStack(spacing: 0) {
+                ForEach(Array(Self.acciones.enumerated()), id: \.offset) { _, a in
+                    let n = items.filter { $0.accion == a.clave }.count
+                    if n > 0 {
+                        HStack(spacing: 12) {
+                            Image(systemName: a.icono).font(.system(size: 13)).foregroundStyle(TextoCentro.secundario).frame(width: 20)
+                            Text(a.titulo).font(.system(size: 13.5)).foregroundStyle(Halo.texto)
+                            Spacer()
+                            Text("\(n)").font(.system(size: 13.5, weight: .medium)).monospacedDigit().foregroundStyle(Halo.texto)
+                        }
+                        .padding(.vertical, 11)
+                        .overlay(alignment: .bottom) { FiloCentro() }
                     }
                 }
             }
-            if items.isEmpty {
-                Vacio(texto: "Inbox al día. Lo que captures con ⌥⇧Espacio o por Telegram aparece aquí con su destino propuesto.")
-            } else if ctx.enVentana {
-                ScrollView { lista.padding(.bottom, 16) }
-            } else {
-                lista   // el render de maquetas no dibuja el contenido de un ScrollView
-                Spacer(minLength: 0)
+            Text("Claude propone un destino para cada captura. Nada se mueve sin tu sí: cada sí queda en el log y todo se recupera con git.")
+                .font(.system(size: 12)).foregroundStyle(TextoCentro.secundario).lineSpacing(2).fixedSize(horizontal: false, vertical: true)
+            if ctx.puedeActuar && archivables.count > 1 {
+                if confirmar {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("¿Archivar \(archivables.count) capturas? Van a Archivo/inbox/ con git; nada se borra.")
+                            .font(.system(size: 12.5)).foregroundStyle(Halo.texto).fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            BotonCentro(titulo: "Sí, archivar \(archivables.count)", tipo: .principal) {
+                                for p in archivables { ctx.aplicarInbox(p.id, "archivar", nil) }
+                                confirmar = false
+                            }
+                            BotonCentro(titulo: "Cancelar") { confirmar = false }
+                        }
+                    }
+                    .padding(14)
+                    .levantado(radio: 16, tono: .claude)
+                } else {
+                    BotonCentro(titulo: "Archivar las \(archivables.count) viejas", icono: "archivebox") { confirmar = true }
+                }
             }
             if !ctx.puedeActuar {
                 Text("Para aprobar desde aquí: defaults write app.dictado centro -dict-add acciones /ruta/a/accion.sh")
                     .font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).textSelection(.enabled)
             }
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 28).padding(.vertical, 22)
     }
 
     private var lista: some View {
-        // En la ventana van todas (con scroll); en el render de maquetas, las primeras seis.
-        let visibles = ctx.enVentana ? items : Array(items.prefix(6))
-        return VStack(spacing: 0) {
-            ForEach(Array(visibles.enumerated()), id: \.element.id) { i, p in
-                if i > 0 { FiloCentro().padding(.horizontal, 16) }
-                FilaCaptura(p: p, destinos: e.inbox?.destinos ?? [], ctx: ctx)
+        // En la ventana van todas (con scroll); en el render de maquetas, las primeras siete.
+        let visibles = ctx.enVentana ? items : Array(items.prefix(7))
+        let filas = VStack(spacing: 2) {
+            ForEach(visibles, id: \.id) { p in
+                FilaCapturaLista(p: p, elegida: p.id == actual?.id, ocupada: ctx.aplicando.contains(p.id)) { elegida = p.id }
             }
         }
-        .padding(.vertical, 4)
-        .superficie(radio: 18)
+        .padding(.horizontal, 12)
+        return VStack(alignment: .leading, spacing: 10) {
+            CabeceraVentana(titulo: "Lo que capturaste", detalle: items.isEmpty ? nil : "Elige una para ver qué propone Claude")
+                .padding(.horizontal, 24).padding(.top, 24)
+            if items.isEmpty {
+                Vacio(texto: "Inbox al día. Lo que captures con ⌥⇧Espacio o por Telegram aparece aquí con su destino propuesto.")
+                    .padding(24)
+            } else if ctx.enVentana {
+                ScrollView { filas.padding(.bottom, 12) }
+            } else {
+                filas   // el render de maquetas no dibuja el contenido de un ScrollView
+                Spacer(minLength: 0)
+            }
+        }
     }
 
-    private var resumen: String {
-        let cuenta = { (a: String) in items.filter { $0.accion == a }.count }
-        var partes = [String]()
-        for (a, t) in [("archivar", "archivar"), ("mover", "mover"), ("tarea", "volver tarea"), ("destilar", "destilar")] where cuenta(a) > 0 {
-            partes.append("\(cuenta(a)) \(t)")
-        }
-        let propone = partes.isEmpty ? "" : " Claude propone: " + partes.joined(separator: ", ") + "."
-        return "\(items.count) capturas.\(propone) Nada se mueve sin tu sí."
+    private static let acciones: [(clave: String, titulo: String, icono: String)] = [
+        ("archivar", "Archivar", "archivebox"), ("mover", "Mover a una carpeta", "folder"),
+        ("tarea", "Volver tarea", "checklist"), ("destilar", "Destilar con Claude", "text.book.closed"),
+    ]
+}
+
+private func iconoCaptura(_ p: EstadoCentro.Propuesta) -> String {
+    if p.fuente == "hermes" { return "antenna.radiowaves.left.and.right" }
+    switch p.tipo {
+    case "tarea": return "checklist"
+    case "nota": return "note.text"
+    default: return "lightbulb"
     }
 }
 
-private struct FilaCaptura: View {
+private func metaCaptura(_ p: EstadoCentro.Propuesta) -> String {
+    var partes = [p.tipo]
+    if !p.fuente.isEmpty && p.fuente != p.tipo { partes.append(p.fuente) }
+    if let f = p.fecha, let d = EscenaMetasCentroFecha.dia(f) {
+        let x = DateFormatter()
+        x.locale = Locale(identifier: "es_CO")
+        x.dateFormat = "d MMM yyyy"
+        partes.append(x.string(from: d).replacingOccurrences(of: ".", with: ""))
+    }
+    return partes.joined(separator: " · ")
+}
+
+private func propuestaCaptura(_ p: EstadoCentro.Propuesta) -> (simbolo: String, texto: String) {
+    switch p.accion {
+    case "archivar": return ("archivebox", "Archivar")
+    case "mover": return ("folder", "Mover a \(p.destino ?? "")")
+    case "tarea": return ("checklist", "Volver tarea")
+    default: return ("text.book.closed", "Destilar con Claude")
+    }
+}
+
+private struct FilaCapturaLista: View {
+    let p: EstadoCentro.Propuesta
+    let elegida: Bool
+    let ocupada: Bool
+    let accion: () -> Void
+    @State private var encima = false
+
+    var body: some View {
+        Button(action: accion) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: iconoCaptura(p)).font(.system(size: 12, weight: .medium)).foregroundStyle(TextoCentro.secundario)
+                    .frame(width: 28, height: 28).background(Circle().fill(.white.opacity(0.06)))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(p.titulo).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                    HStack(spacing: 5) {
+                        Text(metaCaptura(p)).foregroundStyle(TextoCentro.terciario)
+                        Text("·").foregroundStyle(TextoCentro.terciario)
+                        Text(propuestaCaptura(p).texto).fontWeight(.semibold).foregroundStyle(TextoCentro.secundario)
+                    }
+                    .font(.system(size: 11)).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                let forma = RoundedRectangle(cornerRadius: 14, style: .continuous)
+                if elegida {
+                    forma.fill(.white.opacity(0.12)).overlay(forma.strokeBorder(.white.opacity(0.16), lineWidth: 0.75))
+                } else if encima {
+                    forma.fill(.white.opacity(0.05))
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { encima = $0 }
+        .opacity(ocupada ? 0.5 : 1)
+        .accessibilityAddTraits(elegida ? .isSelected : [])
+    }
+}
+
+/// La captura elegida: qué es, qué propone Claude y por qué, y los botones para decidir.
+private struct DetalleCaptura: View {
     let p: EstadoCentro.Propuesta
     let destinos: [String]
     let ctx: ContextoCentro
 
     var body: some View {
         let ocupado = ctx.aplicando.contains(p.id)
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: icono).font(.system(size: 12, weight: .medium)).foregroundStyle(TextoCentro.secundario)
-                .frame(width: 30, height: 30).background(Circle().fill(.white.opacity(0.06)))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(p.titulo).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
-                Text(meta).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
-                if !p.extracto.isEmpty {
-                    Text(p.extracto).font(.system(size: 11.5)).foregroundStyle(TextoCentro.secundario).lineLimit(2)
+        let (simbolo, texto) = propuestaCaptura(p)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: iconoCaptura(p)).font(.system(size: 12, weight: .medium)).foregroundStyle(TextoCentro.secundario)
+                    .frame(width: 30, height: 30).background(Circle().fill(.white.opacity(0.08)))
+                Text(metaCaptura(p)).font(.system(size: 11.5)).foregroundStyle(TextoCentro.terciario).lineLimit(1)
+            }
+            Text(p.titulo).font(.system(size: 19)).foregroundStyle(Halo.texto).lineSpacing(2).lineLimit(4)
+                .fixedSize(horizontal: false, vertical: true)
+            if !p.extracto.isEmpty {
+                Text(p.extracto).font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario).lineSpacing(3).lineLimit(8)
+            }
+            FiloCentro().padding(.top, 6)
+            VStack(alignment: .leading, spacing: 7) {
+                Rotulo("Claude propone", color: Tono.claude.claro)
+                HStack(spacing: 8) {
+                    Image(systemName: simbolo).font(.system(size: 14, weight: .semibold))
+                    Text(texto).font(.system(size: 16, weight: .semibold)).lineLimit(1)
+                }
+                .foregroundStyle(Halo.texto)
+                if !p.razon.isEmpty {
+                    Text(p.razon).font(.system(size: 12)).foregroundStyle(TextoCentro.secundario).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .trailing, spacing: 7) {
-                propuesta
-                Text(p.razon).font(.system(size: 11)).foregroundStyle(TextoCentro.terciario).lineLimit(2)
-                    .multilineTextAlignment(.trailing).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 6) { botones(ocupado) }
-                if let f = ctx.fallos[p.id] {
-                    Text(f).font(.system(size: 11, weight: .medium)).foregroundStyle(Tono.rojo.claro).lineLimit(2)
-                }
+            HStack(spacing: 8) { botones(ocupado) }.padding(.top, 4)
+            if let f = ctx.fallos[p.id] {
+                Text(f).font(.system(size: 11.5, weight: .medium)).foregroundStyle(Tono.rojo.claro).lineLimit(2)
             }
-            .frame(width: 330, alignment: .trailing)
+            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .modifier(EncimaCentro(radio: 16))
-        .opacity(ocupado ? 0.5 : 1)
-    }
-
-    private var icono: String {
-        if p.fuente == "hermes" { return "antenna.radiowaves.left.and.right" }
-        switch p.tipo {
-        case "tarea": return "checklist"
-        case "nota": return "note.text"
-        default: return "lightbulb"
-        }
-    }
-
-    private var meta: String {
-        var partes = [p.tipo]
-        if !p.fuente.isEmpty && p.fuente != p.tipo { partes.append(p.fuente) }
-        if let f = p.fecha, let d = EscenaMetasCentroFecha.dia(f) {
-            let x = DateFormatter()
-            x.locale = Locale(identifier: "es_CO")
-            x.dateFormat = "d MMM yyyy"
-            partes.append(x.string(from: d).replacingOccurrences(of: ".", with: ""))
-        }
-        return partes.joined(separator: " · ")
-    }
-
-    private var propuesta: some View {
-        let (simbolo, texto): (String, String) = {
-            switch p.accion {
-            case "archivar": return ("archivebox", "Archivar")
-            case "mover": return ("folder", "Mover a \(p.destino ?? "")")
-            case "tarea": return ("checklist", "Tarea: \(p.destino ?? "")")
-            default: return ("text.book.closed", "Destilar con Claude")
-            }
-        }()
-        return HStack(spacing: 5) {
-            Text("Claude propone").foregroundStyle(TextoCentro.terciario)
-            Image(systemName: simbolo).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(TextoCentro.secundario)
-            Text(texto).fontWeight(.semibold).foregroundStyle(Halo.texto).lineLimit(1)
-        }
-        .font(.system(size: 11.5))
-        .frame(height: 20)
+        .opacity(ocupado ? 0.6 : 1)
     }
 
     @ViewBuilder private func botones(_ ocupado: Bool) -> some View {
         if p.accion == "destilar" {
-            BotonCentro(titulo: "Copiar el pedido para Claude", icono: "doc.on.doc") {
+            BotonCentro(titulo: "Copiar el pedido para Claude", icono: "doc.on.doc", tipo: .principal) {
                 ctx.copiar("Destila \(p.id) a la wiki (las páginas que toque) y luego archívalo.")
             }
         } else if ctx.puedeActuar {
-            BotonCentro(titulo: ocupado ? "Aplicando…" : "Aprobar", tipo: .principal) { ctx.aplicarInbox(p.id, p.accion, p.destino) }
-                .disabled(ocupado)
+            BotonCentro(titulo: ocupado ? "Aplicando…" : "Aprobar", icono: "checkmark", tipo: .principal) {
+                ctx.aplicarInbox(p.id, p.accion, p.destino)
+            }
+            .disabled(ocupado)
         }
         if ctx.puedeActuar && !ctx.enVentana {
-            chip("Otro", fondo: .white.opacity(0.08), texto: Halo.texto)   // el render no dibuja menús
+            chip("Otro destino")   // el render no dibuja menús
         } else if ctx.puedeActuar {
             Menu {
                 Button("Archivar") { ctx.aplicarInbox(p.id, "archivar", nil) }
@@ -1450,7 +1475,7 @@ private struct FilaCaptura: View {
                 }
                 Button("Volver tarea") { ctx.aplicarInbox(p.id, "tarea", p.titulo) }
             } label: {
-                chip("Otro", fondo: .white.opacity(0.08), texto: Halo.texto)
+                chip("Otro destino")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -1459,14 +1484,14 @@ private struct FilaCaptura: View {
         }
     }
 
-    private func chip(_ t: String, fondo: Color, texto: Color) -> some View {
-        HStack(spacing: 4) {
+    private func chip(_ t: String) -> some View {
+        HStack(spacing: 5) {
             Text(t).font(.system(size: 12.5, weight: .semibold))
             Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).opacity(0.7)
         }
-        .foregroundStyle(texto)
+        .foregroundStyle(Halo.texto)
         .padding(.horizontal, 13).frame(height: 28)
-        .background(Capsule().fill(fondo))
+        .background(Capsule().fill(.white.opacity(0.08)))
         .overlay(Capsule().strokeBorder(Color.white.opacity(0.13), lineWidth: 0.75))
     }
 }

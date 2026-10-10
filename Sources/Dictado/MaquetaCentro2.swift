@@ -29,8 +29,11 @@ func hojaCentroReal(_ destino: URL, escena: String?) -> Bool {
                  Date().timeIntervalSince(inicio), estado.vps ? "sí" : "no", estado.brief == nil ? "no" : "sí",
                  estado.metas == nil ? "no" : "sí", estado.noticias?.items.count ?? 0,
                  estado.orquesta == nil ? "no" : "sí", estado.finanzas == nil ? "no" : "sí"))
+    let c = SesionesClaude(vivo: false)
+    c.leer(avisar: false)
     return renderCentro(estado, destino: destino, escena: escena,
-                        ctx: ContextoCentro(sesiones: sesionesAhora(), leido: Date(), puedeActuar: CentroStore.acciones != nil))
+                        ctx: ContextoCentro(sesiones: c.sesiones, leido: Date(), puedeActuar: CentroStore.acciones != nil,
+                                            tokensHoy: c.tokensHoy, respuestasHoy: c.respuestasHoy))
 }
 
 @MainActor
@@ -43,13 +46,13 @@ private func sesionesAhora() -> [SesionesClaude.Sesion] {
 @MainActor
 private func renderCentro(_ estado: EstadoCentro?, destino: URL, escena: String?, ctx: ContextoCentro) -> Bool {
     let lienzo = CGSize(width: 1600, height: 1000)
-    let ventana = CGSize(width: 1480, height: 900)
     let seccion = SeccionCentro(rawValue: escena ?? "hoy") ?? .hoy
-    let vista = lienzoHalo(fondoDeMuestra(), lienzo: lienzo, panel: ventana) {
+    let vista = ZStack {
+        FondoEspacio(imagen: fondoDeMuestra())
         VistaCentro(estado: estado, ctx: ctx, seccion: .constant(seccion))
-            .frame(width: ventana.width, height: ventana.height)
-            .vidrioCentro(simulado: true)
     }
+    .frame(width: lienzo.width, height: lienzo.height)
+    .environment(\.vidrioSimulado, true)
     .environment(\.colorScheme, .dark)
     let renderer = ImageRenderer(content: vista)
     renderer.scale = 2

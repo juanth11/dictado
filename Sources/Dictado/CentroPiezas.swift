@@ -3,36 +3,6 @@ import SwiftUI
 
 // Piezas comunes del centro de mando (las usan la ventana y las maquetas).
 
-/// Una tarjeta del centro: rótulo arriba (con algo a la derecha si hace falta), contenido y, si tiene tono, la luz del
-/// borde.
-struct TarjetaCentro<C: View>: View {
-    let rotulo: String
-    var tono: Tono?
-    var luz = 0.0
-    var derecha: AnyView?
-    @ViewBuilder let contenido: () -> C
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Rotulo(rotulo, color: tono?.claro ?? TextoCentro.terciario)
-                Spacer()
-                if let derecha { derecha }
-            }
-            contenido()
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background {
-            if let tono, luz > 0 {
-                LuzBorde(tono: tono, fuerza: luz, alto: 0.7, centro: 0.3, ancho: 0.9)
-                    .clipShape(RoundedRectangle(cornerRadius: Halo.radioTarjeta + 4, style: .continuous))
-            }
-        }
-        .superficie(radio: 18)
-    }
-}
-
 func hace(_ fecha: Date) -> String {
     let s = Int(-fecha.timeIntervalSinceNow)
     if s < 3600 { return "hace \(max(1, s / 60)) min" }
@@ -110,22 +80,8 @@ struct LevantadoCentro: ViewModifier {
     }
 }
 
-/// Lo que se lee sobre el vidrio sin pedir nada: plano, apenas un velo y un filo.
-struct SuperficieCentro: ViewModifier {
-    var radio: CGFloat = 18
-
-    func body(content: Content) -> some View {
-        let forma = RoundedRectangle(cornerRadius: radio, style: .continuous)
-        return content
-            .background(forma.fill(Color.white.opacity(0.035)))
-            .overlay(forma.strokeBorder(Color.white.opacity(0.075), lineWidth: 0.75))
-    }
-}
-
 extension View {
-    func vidrioCentro(simulado: Bool) -> some View { modifier(VidrioCentro(simulado: simulado)) }
     func levantado(radio: CGFloat = 20, tono: Tono? = nil) -> some View { modifier(LevantadoCentro(radio: radio, tono: tono)) }
-    func superficie(radio: CGFloat = 18) -> some View { modifier(SuperficieCentro(radio: radio)) }
 }
 
 /// Línea fina para separar filas sobre el vidrio.

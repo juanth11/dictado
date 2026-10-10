@@ -8,7 +8,7 @@ import Observation
 ///   defaults write app.dictado centro -dict comando '"/ruta/a/estado.sh"'
 ///
 /// El objeto: { "brief.json": {…}, "metas.json": {…}, "noticias.json": {…}, "orquesta.json": {…}, "salud.json": {…},
-///              "finanzas.json": {…}, "modulos.json": [{nombre, valor, abrir}], "local": {cerebro, inbox}, "vps": true }
+///              "finanzas.json": {…}, "modulos.json": [{nombre, valor, abrir, icono}], "local": {cerebro, inbox}, "vps": true }
 /// Falta un archivo o no se entiende: esa parte se oculta y el resto sigue.
 struct EstadoCentro {
     struct Brief: Decodable {
@@ -72,7 +72,7 @@ struct EstadoCentro {
     struct Capacidad: Decodable { var nombre: String; var estado: String; var detalle: String?; var desde: String? }
     struct Salud: Decodable { var generado: String?; var capacidades: [Capacidad] }
 
-    struct Modulo: Decodable { var nombre: String; var valor: String; var abrir: String? }
+    struct Modulo: Decodable { var nombre: String; var valor: String; var abrir: String?; var icono: String? }
     struct Local: Decodable { var cerebro: String; var inbox: Int; var inboxHermes: Int? }
     /// Una captura del inbox con el destino que propone Claude (archivar, mover, tarea o destilar).
     struct Propuesta: Decodable, Identifiable {

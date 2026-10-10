@@ -2,10 +2,12 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// La ventana del centro de mando: Hoy (el brief del día), Metas (semana, mes y trimestre) y Orquesta (tus agentes).
-/// Lee el estado con el comando configurado (CentroDatos.swift) al abrirse y cada 5 minutos mientras está abierta.
-/// Se crea al abrirla y se suelta al cerrarla: cerrada no ocupa memoria ni corre nada.
-/// Atajos con la ventana al frente: ⌘1 Hoy · ⌘2 Metas · ⌘3 Orquesta · ⌘4 Inbox · ⌘R actualizar · ⌘W cerrar.
+/// El centro de mando como un espacio (CentroEspacio.swift): una ventana sin marco que cubre la pantalla con tu fondo
+/// de pantalla y, encima, las ventanas de vidrio de cada sección: Hoy, Metas, Orquesta e Inbox.
+/// Lee el estado con el comando configurado (CentroDatos.swift) al abrirse y cada 5 minutos mientras está abierto.
+/// Se crea al abrirlo y se suelta al cerrarlo: cerrado no ocupa memoria ni corre nada. Se cierra con esc, ⌘W, la ×
+/// o al irte a otra app (como Launchpad), y entonces vuelve la app que estaba al frente.
+/// Atajos: ⌘1 Hoy · ⌘2 Metas · ⌘3 Orquesta · ⌘4 Inbox · ⌘R actualizar · esc o ⌘W cerrar.
 @MainActor
 final class Centro: NSObject, NSWindowDelegate {
     @MainActor @Observable
@@ -21,6 +23,9 @@ final class Centro: NSObject, NSWindowDelegate {
     private var ventana: NSWindow?
     private var reloj: Timer?
     private var monitor: Any?
+    /// La app que estaba al frente al abrir: a ella se vuelve al cerrar con esc, ⌘W o la ×.
+    private var anterior: NSRunningApplication?
+    private var cerrando = false
 
     /// Solo para la prueba de humo: vidrio simulado, porque el real lo compone el sistema y no sale en una foto.
     private let vidrioSimulado: Bool
@@ -36,10 +41,21 @@ final class Centro: NSObject, NSWindowDelegate {
     func abrir(_ seccion: SeccionCentro? = nil) {
         if let seccion { navegacion.seccion = seccion }
         if claudeIsla == nil && claudePropio == nil { claudePropio = SesionesClaude() }
+        let nueva = ventana == nil
+        if nueva, let frontal = NSWorkspace.shared.frontmostApplication, frontal != NSRunningApplication.current { anterior = frontal }
         let v = ventana ?? crearVentana()
         ventana = v
         NSApp.activate(ignoringOtherApps: true)
-        v.makeKeyAndOrderFront(nil)
+        if nueva && !vidrioSimulado {
+            v.alphaValue = 0
+            v.makeKeyAndOrderFront(nil)
+            NSAnimationContext.runAnimationGroup { c in
+                c.duration = 0.22
+                v.animator().alphaValue = 1
+            }
+        } else {
+            v.makeKeyAndOrderFront(nil)
+        }
         store.actualizar()
         reloj?.invalidate()
         reloj = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
@@ -48,37 +64,47 @@ final class Centro: NSObject, NSWindowDelegate {
         instalarAtajos()
     }
 
-    func cerrar() { ventana?.performClose(nil) }
+    /// Cierra el espacio. `devolver`: vuelve a la app que estaba al frente (no al irte tú a otra app).
+    func cerrar(devolver: Bool = true) {
+        guard let v = ventana, !cerrando else { return }
+        cerrando = true
+        let app = devolver ? anterior : nil
+        NSAnimationContext.runAnimationGroup({ c in
+            c.duration = vidrioSimulado ? 0 : 0.14
+            v.animator().alphaValue = 0
+        }, completionHandler: {
+            MainActor.assumeIsolated {
+                v.close()
+                app?.activate()
+            }
+        })
+    }
 
+    /// Una ventana sin marco del tamaño de la pantalla donde está el puntero. La barra de menús y el Dock quedan por
+    /// encima (son de otro nivel): lo que tapan se le pasa a la vista como margen.
     private func crearVentana() -> NSWindow {
-        let v = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1260, height: 820),
-                         styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
-                         backing: .buffered, defer: false)
+        let pantalla = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
+        let marco = pantalla.frame, util = pantalla.visibleFrame
+        let v = VentanaDelEspacio(contentRect: marco, styleMask: [.borderless, .fullSizeContentView], backing: .buffered, defer: false)
+        v.setFrame(marco, display: false)
         v.title = "Centro de mando"
-        v.titlebarAppearsTransparent = true
-        v.titleVisibility = .hidden
-        v.isMovableByWindowBackground = true
         v.backgroundColor = .clear
         v.isOpaque = false
-        v.hasShadow = true
+        v.hasShadow = false
+        v.level = .normal
         v.appearance = NSAppearance(named: .darkAqua)
-        v.minSize = NSSize(width: 1120, height: 780)
         v.isReleasedWhenClosed = false
-        v.collectionBehavior = [.fullScreenPrimary]
+        v.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         v.delegate = self
+        let margenes = EdgeInsets(top: marco.maxY - util.maxY, leading: util.minX - marco.minX,
+                                  bottom: util.minY - marco.minY, trailing: marco.maxX - util.maxX)
         let raiz = RaizCentro(store: store, navegacion: navegacion, claude: claudeIsla ?? claudePropio, simulado: vidrioSimulado,
-                              abrir: { [weak self] destino in self?.abrir(destino: destino) })
+                              fondo: vidrioSimulado ? fondoDeMuestra() : FondoEspacio.deEscritorio(pantalla), margenes: margenes,
+                              abrir: { [weak self] destino in self?.abrir(destino: destino) },
+                              cerrar: { [weak self] in self?.cerrar() })
         let anfitrion = NSHostingView(rootView: raiz)
-        anfitrion.sizingOptions = []   // el tamaño lo decide la ventana (redimensionable), no el ideal de SwiftUI
+        anfitrion.sizingOptions = []   // el tamaño lo decide la ventana (la pantalla), no el ideal de SwiftUI
         v.contentView = anfitrion
-        v.center()
-        v.setFrameAutosaveName("CentroDeMando")
-        // Un tamaño guardado que ya no cabe (otra pantalla, otra resolución) vuelve al de siempre.
-        if let pantalla = (v.screen ?? NSScreen.main)?.visibleFrame,
-           v.frame.height > pantalla.height || v.frame.width > pantalla.width {
-            v.setContentSize(NSSize(width: min(1260, pantalla.width), height: min(820, pantalla.height)))
-            v.center()
-        }
         return v
     }
 
@@ -99,19 +125,26 @@ final class Centro: NSObject, NSWindowDelegate {
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] evento in
             nonisolated(unsafe) let e = evento
             return MainActor.assumeIsolated {
-                guard let self, let v = self.ventana, v.isKeyWindow, e.modifierFlags.contains(.command) else { return e }
+                guard let self, let v = self.ventana, v.isKeyWindow else { return e }
+                if e.keyCode == 53 { self.cerrar(); return nil }   // esc
+                guard e.modifierFlags.contains(.command) else { return e }
                 switch e.charactersIgnoringModifiers {
                 case "1": self.navegacion.seccion = .hoy
                 case "2": self.navegacion.seccion = .metas
                 case "3": self.navegacion.seccion = .orquesta
                 case "4": self.navegacion.seccion = .inbox
                 case "r": self.store.actualizar()
-                case "w": v.performClose(nil)
+                case "w": self.cerrar()
                 default: return e
                 }
                 return nil
             }
         }
+    }
+
+    /// Te fuiste a otra app (o abriste un enlace): el espacio se cierra, como Launchpad.
+    func windowDidResignKey(_ notification: Notification) {
+        cerrar(devolver: false)
     }
 
     func windowWillClose(_ notification: Notification) {
@@ -121,14 +154,18 @@ final class Centro: NSObject, NSWindowDelegate {
         monitor = nil
         claudePropio = nil
         // Se suelta la ventana con toda su jerarquía de vistas (después de que AppKit termine de cerrarla).
-        DispatchQueue.main.async { [weak self] in self?.ventana = nil }
+        DispatchQueue.main.async { [weak self] in
+            self?.ventana = nil
+            self?.cerrando = false
+        }
     }
 
-    /// Foto de la ventana tal cual está (para la prueba de humo). El vidrio lo compone el sistema y no sale en la foto.
+    /// Foto de la ventana (para la prueba de humo): sirve para ver que abre y lee el estado. Ni el vidrio ni el giro 3D de
+    /// las ventanas laterales salen en ella (cacheDisplay no aplica las transformaciones); el diseño se revisa con los renders.
     func capturar() -> Data? {
         guard let vista = ventana?.contentView, let rep = vista.bitmapImageRepForCachingDisplay(in: vista.bounds) else { return nil }
         vista.cacheDisplay(in: vista.bounds, to: rep)
-        // El fondo de la ventana es transparente (el vidrio lo pone el sistema): se compone sobre negro para verla.
+        // El vidrio lo pone el sistema y no sale en la foto: se compone sobre un fondo oscuro para verla.
         let imagen = NSImage(size: vista.bounds.size)
         imagen.lockFocus()
         NSColor(white: 0.08, alpha: 1).setFill()
@@ -141,12 +178,23 @@ final class Centro: NSObject, NSWindowDelegate {
     }
 }
 
+/// Una ventana sin marco que igual recibe el teclado (esc y los atajos).
+private final class VentanaDelEspacio: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 private struct RaizCentro: View {
     let store: CentroStore
     @Bindable var navegacion: Centro.Navegacion
     let claude: SesionesClaude?
     let simulado: Bool
+    let fondo: NSImage?
+    let margenes: EdgeInsets
     let abrir: (String) -> Void
+    let cerrar: () -> Void
+    @Environment(\.accessibilityReduceMotion) private var sinMovimiento
+    @State private var visto = false
 
     var body: some View {
         let ctx = ContextoCentro(sesiones: claude?.sesiones ?? [], leido: store.leido, cargando: store.cargando,
@@ -158,10 +206,22 @@ private struct RaizCentro: View {
                                  copiar: { texto in
                                      NSPasteboard.general.clearContents()
                                      NSPasteboard.general.setString(texto, forType: .string)
-                                 })
-        VistaCentro(estado: store.estado, ctx: ctx, seccion: $navegacion.seccion)
-            .vidrioCentro(simulado: simulado)
-            .ignoresSafeArea()
+                                 },
+                                 cerrar: cerrar, tokensHoy: claude?.tokensHoy ?? 0, respuestasHoy: claude?.respuestasHoy ?? 0)
+        ZStack {
+            FondoEspacio(imagen: fondo)
+            // Al abrir, las ventanas llegan desde un poco más lejos (sin movimiento si así lo pides).
+            VistaCentro(estado: store.estado, ctx: ctx, seccion: $navegacion.seccion)
+                .padding(margenes)
+                .scaleEffect(visto || sinMovimiento || simulado ? 1 : 0.965)
+                .opacity(visto || simulado ? 1 : 0)
+        }
+        .ignoresSafeArea()
+        .environment(\.vidrioSimulado, simulado)
+        .environment(\.colorScheme, .dark)
+        .onAppear {
+            withAnimation(.timingCurve(0.16, 1, 0.3, 1, duration: sinMovimiento ? 0.2 : 0.5)) { visto = true }
+        }
     }
 }
 

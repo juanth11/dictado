@@ -1,16 +1,18 @@
 # Centro de mando
 
-Es una ventana de Dictado para ver tu día y a tus agentes. Tiene tres secciones:
+Es un espacio de Dictado para ver tu día y a tus agentes, al estilo visionOS. Al abrirlo, tu fondo de pantalla ocupa la pantalla y encima flotan tres ventanas de vidrio en curva que miran hacia ti. La del centro está de frente; la lateral que apuntas con el puntero se pone de frente para leerla y tocarla. Alrededor van los ornamentos: las pestañas a la izquierda (con tus módulos), el estado arriba y, bajo la ventana del centro, lo que acompaña a cada sección. Se cierra con esc, ⌘W o la ×, o al irte a otra app, como Launchpad.
 
-- **Hoy:** el brief del día, con el foco, tres prioridades atadas a tus metas, cosas buenas de saber, un resumen de finanzas y noticias que te importan.
-- **Metas:** la semana, el mes y el trimestre, con el tiempo que va corrido frente al avance de cada meta.
-- **Orquesta:** lo que pide tu sí, lo que está trabajando, lo programado, lo hecho hoy y la semana de tus agentes. Junta tus sesiones de Claude Code en vivo con lo que te reporte tu propio servidor.
-- **Inbox:** tus capturas con el destino que propone tu asistente (archivar, mover a una carpeta, volver tarea o destilar). Apruebas con un clic, una por una o todas las de archivo a la vez.
+Tiene cuatro secciones:
+
+- **Hoy:** a la izquierda tus agentes (sesiones de Claude Code, tu servidor y lo último que llegó al inbox); al frente el brief del día, con el foco, tres prioridades atadas a tus metas y cosas buenas de saber; a la derecha finanzas en resumen y noticias que te importan; debajo, tus metas de la semana, el mes y el trimestre.
+- **Metas:** la semana, el mes y el trimestre, una ventana cada uno, con el tiempo que va corrido frente al avance de cada meta; debajo, el trimestre como regla con sus hitos.
+- **Orquesta:** lo que pide tu sí (la ventana se enciende si hay algo), lo que trabaja ahora con la semana de tus agentes, lo programado y lo hecho hoy; debajo, lo que va costando. Junta tus sesiones de Claude Code en vivo con lo que te reporte tu propio servidor.
+- **Inbox:** el resumen y la acción en bloque, tus capturas y, a la derecha, la que elegiste con el destino que propone tu asistente (archivar, mover a una carpeta, volver tarea o destilar). Apruebas con un clic, una por una o todas las de archivo a la vez.
 
 ## Qué hace y qué no
 
 - **Solo lee.** Dictado no calcula ni guarda nada del centro. Ejecuta un comando que tú configuras, decodifica el JSON que ese comando imprime y lo pinta.
-- **Cerrada, no corre nada.** Lee al abrirse y cada 5 minutos mientras está abierta. Al cerrarla se libera la ventana.
+- **Cerrado, no corre nada.** Lee al abrirse y cada 5 minutos mientras está abierto. Al cerrarlo se libera la ventana (y la imagen del fondo).
 - **Sin conexión, muestra lo último.** Guarda una caché en `~/Library/Caches/app.dictado/centro.json` y muestra lo último que leyó.
 - **Lo que se puede abrir:** el tablero de finanzas, el archivo de metas, una noticia (solo enlaces http o https) y una sesión de Claude Code.
 - **Lo único que cambia algo es el inbox,** y solo cuando apruebas. Dictado corre tu script de acciones **sin shell**: los argumentos van tal cual y nada se interpreta ni se inyecta. El script valida y responde `{"ok": true}` o `{"ok": false, "error": "…"}`.
@@ -58,12 +60,15 @@ Las rutas relativas (`enlace`, `abrir`, `archivo`) se abren dentro de `local.cer
 
 ## Atajos
 
-Con la ventana al frente: **⌘1** Hoy · **⌘2** Metas · **⌘3** Orquesta · **⌘4** Inbox · **⌘R** actualizar · **⌘W** cerrar.
+Con el espacio abierto: **⌘1** Hoy · **⌘2** Metas · **⌘3** Orquesta · **⌘4** Inbox · **⌘R** actualizar · **esc** o **⌘W** cerrar.
+
+Accesibilidad: con *Reducir movimiento* las ventanas quedan de frente y no se animan; con *Reducir transparencia* el vidrio y el fondo se vuelven sólidos.
 
 ## Probar sin abrir la app
 
 ```bash
-Dictado --vista-centro2 salida.png [hoy|metas|orquesta]      # con DICTADO_CENTRO_ESTADO=<carpeta con los .json sueltos>
-Dictado --vista-centro-real salida.png [hoy|metas|orquesta]  # con el comando configurado
-Dictado --probar-ventana-centro salida.png [hoy|metas|orquesta]  # abre la ventana real, espera los datos y guarda una foto
+Dictado --vista-centro2 salida.png [hoy|metas|orquesta|inbox]      # con DICTADO_CENTRO_ESTADO=<carpeta con los .json sueltos>
+Dictado --vista-centro-real salida.png [hoy|metas|orquesta|inbox]  # con el comando configurado (DICTADO_FONDO=imagen para el fondo)
+Dictado --probar-ventana-centro salida.png [hoy|metas|orquesta|inbox]  # abre el espacio real, espera los datos y guarda una foto
+                                                                    # (sin vidrio ni giro 3D: eso se revisa con los renders)
 ```
