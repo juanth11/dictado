@@ -210,7 +210,8 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
     let pb = NSPasteboard(name: NSPasteboard.Name("app.dictado.vista.\(UUID().uuidString)"))
     let historial = Historial(carpeta: carpeta, pasteboard: pb)
     let fondo = fondoDeMuestra()
-    // Variantes para revisar cada tipo: lista (texto), enlace, imagen, largo, archivo, codigo, color.
+    // Variantes para revisar cada tipo: lista (texto), enlace, imagen, largo, archivo, codigo, color; y los estados
+    // vacíos: vacio (historial sin nada) y busqueda (sin coincidencias).
     let variante = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : (modoLista ? "lista" : "")
     // Dos archivos de ejemplo en la carpeta temporal (lo más antiguo del historial).
     let documentos = carpeta.appendingPathComponent("Documentos")
@@ -262,7 +263,13 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
     }
     let estado = EstadoPanel()
     estado.appDestino = "Mail"
-    if !variante.isEmpty {
+    // vacio: el historial sin nada; busqueda: una búsqueda sin coincidencias (lista y vista previa vacías).
+    let mostrado = variante == "vacio" ? Historial(muestra: []) : historial
+    if variante == "busqueda" {
+        estado.busqueda = "factura"
+    } else if variante == "vacio" {
+        estado.seleccion = nil
+    } else if !variante.isEmpty {
         let lista = Portapapeles.filtrar(historial.recortes, estado)
         estado.seleccion = switch variante {
         case "enlace": lista.first { $0.tipo == .enlace }?.id
@@ -277,9 +284,9 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
         estado.seleccion = lista[1].id
         estado.marcados = Set([lista[0].id, lista[1].id, lista[3].id])
     }
-    let vista = lienzoConVidrio(fondo, lienzo: CGSize(width: 1000, height: 660),
-                                panel: CGSize(width: VistaPortapapeles.ancho, height: VistaPortapapeles.alto), radio: 30) {
-        VistaPortapapeles(historial: historial, estado: estado, control: nil, simulado: true)
+    let vista = lienzoHalo(fondo, lienzo: CGSize(width: 1000, height: 660),
+                           panel: CGSize(width: VistaPortapapeles.ancho, height: VistaPortapapeles.alto), radio: 30) {
+        VistaPortapapeles(historial: mostrado, estado: estado, control: nil, simulado: true)
     }
     let renderer = ImageRenderer(content: vista)
     renderer.scale = 2
