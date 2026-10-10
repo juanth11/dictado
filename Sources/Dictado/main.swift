@@ -2,6 +2,14 @@ import AppKit
 
 let argumentos = CommandLine.arguments
 // SwiftUI necesita renderizar en el hilo principal, sin saltos asíncronos.
+if argumentos.count > 2, argumentos[1] == "--animaciones" {
+    let ok = MainActor.assumeIsolated { animaciones(URL(fileURLWithPath: argumentos[2])) }
+    exit(ok ? 0 : 1)
+}
+if argumentos.count > 2, argumentos[1] == "--vista-halo" {
+    let ok = MainActor.assumeIsolated { hojaHalo(URL(fileURLWithPath: argumentos[2])) }
+    exit(ok ? 0 : 1)
+}
 if argumentos.count > 2, argumentos[1] == "--vista-isla" {
     let ok = MainActor.assumeIsolated { hojaIsla(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)

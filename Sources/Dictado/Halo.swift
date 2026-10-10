@@ -168,7 +168,7 @@ struct Liquido: View {
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.06))
                     .overlay(Capsule().strokeBorder(.white.opacity(0.07), lineWidth: 1))
-                if let texto {
+                if let texto, valor < 0.7 {  // en el riel, al final
                     Text(texto).font(.system(size: max(9, alto * 0.42), weight: .semibold)).monospacedDigit()
                         .foregroundStyle(Halo.texto3)
                         .frame(maxWidth: .infinity, alignment: .trailing).padding(.trailing, alto * 0.55)
@@ -177,6 +177,12 @@ struct Liquido: View {
                     .fill(LinearGradient(colors: [tono.base, tono.claro], startPoint: .leading, endPoint: .trailing))
                     .overlay(Capsule().fill(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0)],
                                                            startPoint: .top, endPoint: .center)).padding(max(1, alto * 0.08)))
+                    .overlay(alignment: .leading) {  // casi lleno: el texto va dentro del relleno
+                        if let texto, valor >= 0.7 {
+                            Text(texto).font(.system(size: max(9, alto * 0.42), weight: .semibold)).monospacedDigit()
+                                .foregroundStyle(.black.opacity(0.6)).padding(.leading, alto * 0.55).lineLimit(1)
+                        }
+                    }
                     .overlay(alignment: .trailing) {
                         if let icono, alto >= 16 {
                             Image(systemName: icono).font(.system(size: alto * 0.44, weight: .bold)).foregroundStyle(.white)
