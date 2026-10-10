@@ -57,7 +57,9 @@ Cada tono tiene `base` y `claro`. Las marcas, el líquido y la luz van del uno a
 | `VolumenNiebla` | La onda del sonido como niebla de luz hasta el nivel, línea punteada con la cifra encima y rayitas tenues después | Volumen (estilo `niebla`) |
 | `VolumenCalor` | Línea fina con topes: brillo cálido hasta el nivel (centro blanco) y frío después; "VOLUMEN 62" arriba, 0 y 100 abajo | Volumen (estilo `calor`) |
 
-El volumen tiene tres estilos: `termostato` (el de siempre), `niebla` y `calor`. Se elige con `defaults write app.dictado estiloVolumen niebla` y cambia al instante, sin reiniciar.
+| `VolumenEspectro` | Rayitas blancas a todo lo ancho sumergidas en una luz azul y violeta que sube del borde, encendidas hasta el nivel, con una línea y su perilla encima | Volumen (estilo `espectro`) |
+
+El volumen tiene cuatro estilos: `termostato` (por defecto), `niebla`, `calor` y `espectro`. Se elige con `defaults write app.dictado estiloVolumen niebla` y cambia al instante, sin reiniciar.
 | `Regla` | Las mismas marcas en línea | Niveles y medidas pequeñas |
 | `Liquido` | Cápsula de progreso que brilla, con reflejo e ícono o texto | El día de un agente, espacio liberado |
 | `Cifra`, `NumeroFino` | Cifra con su unidad en versalitas | Todo dato principal |

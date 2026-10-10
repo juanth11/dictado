@@ -252,6 +252,7 @@ private struct BarraNivel: View {
             switch EstiloVolumen.actual {
             case .niebla: VolumenNiebla(estado: estado, valor: valor, silencio: silencio, salida: salida)
             case .calor: VolumenCalor(estado: estado, valor: valor, silencio: silencio, salida: salida)
+            case .espectro: VolumenEspectro(estado: estado, valor: valor, silencio: silencio, salida: salida)
             case .termostato: VolumenIsla(estado: estado, valor: valor, silencio: silencio, salida: salida)
             }
         } else {
@@ -424,9 +425,9 @@ private struct VolumenIsla: View {
 }
 
 /// Cómo se ve el volumen en la isla. Se elige con `defaults write app.dictado estiloVolumen niebla` (termostato,
-/// niebla o calor); en los renders, con la variable DICTADO_VOLUMEN.
+/// niebla, calor o espectro); en los renders, con la variable DICTADO_VOLUMEN.
 enum EstiloVolumen: String {
-    case termostato, niebla, calor
+    case termostato, niebla, calor, espectro
 
     static var actual: EstiloVolumen {
         let valor = ProcessInfo.processInfo.environment["DICTADO_VOLUMEN"]
@@ -607,6 +608,93 @@ private struct VolumenCalor: View {
             }
             .padding(.horizontal, 26)
             .padding(.bottom, 5)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+    }
+}
+
+/// Volumen como espectro (como un reproductor con barras): arriba "Volumen" y a dónde va el sonido, la cifra y el
+/// parlante en un círculo; una línea fina con su perilla marca el nivel; abajo, rayitas blancas a todo lo ancho,
+/// sumergidas en una luz azul y violeta que sube desde el borde, encendidas hasta el nivel y tenues después.
+private struct VolumenEspectro: View {
+    let estado: EstadoIsla
+    let valor: Double
+    let silencio: Bool
+    var salida: SalidaAudio?
+
+    private static let azul = Color(red: 0.25, green: 0.4, blue: 1.0)
+    private static let violeta = Color(red: 0.55, green: 0.45, blue: 1.0)
+    private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        VStack(spacing: 0) {
+            Color.clear.frame(height: estado.notch.height)
+            VStack(spacing: 5) {
+                HStack(alignment: .center, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(silencio ? "Silencio" : "Volumen").font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(silencio ? Self.rojoMudo : Halo.texto)
+                        if let salida { Text(salida.nombre).font(.system(size: 10.5)).foregroundStyle(Halo.texto3).lineLimit(1) }
+                    }
+                    Spacer()
+                    Text(silencio ? "—" : "\(Int((v * 100).rounded()))")
+                        .font(.system(size: 20, weight: .light)).monospacedDigit().foregroundStyle(Halo.texto)
+                        .contentTransition(.numericText(value: v))
+                    Image(systemName: silencio ? "speaker.slash.fill" : "speaker.wave.3.fill", variableValue: max(v, 0.01))
+                        .font(.system(size: 9.5, weight: .bold)).foregroundStyle(silencio ? Self.rojoMudo : .white.opacity(0.85))
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(.white.opacity(0.14)))
+                }
+                .padding(.horizontal, 24)
+                GeometryReader { g in  // la línea del nivel con su perilla
+                    let w = g.size.width
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(.white.opacity(0.2)).frame(height: 1.2)
+                        Capsule().fill(.white.opacity(silencio ? 0.3 : 0.9)).frame(width: w * v, height: 1.2)
+                        Circle().fill(.white.opacity(silencio ? 0.4 : 1)).frame(width: 6, height: 6)
+                            .shadow(color: .white.opacity(silencio ? 0 : 0.8), radius: 3)
+                            .offset(x: w * v - 3)
+                    }
+                    .frame(maxHeight: .infinity)
+                }
+                .frame(height: 6)
+                .padding(.horizontal, 24)
+                GeometryReader { g in  // el espectro a todo lo ancho, con la luz desde abajo
+                    let w = g.size.width, h = g.size.height
+                    let n = 72
+                    let paso = w / CGFloat(n)
+                    let x = w * v
+                    ZStack(alignment: .bottomLeading) {
+                        if !silencio && v > 0 {
+                            Ellipse().fill(Self.azul)  // la luz que se derrama más allá de las barras
+                                .frame(width: x * 1.1, height: h * 2.2)
+                                .offset(x: -x * 0.03, y: h * 0.45)
+                                .blur(radius: 12)
+                            Rectangle()  // la luz que sube desde el borde e inunda la base de las barras
+                                .fill(LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: Self.azul.opacity(0.9), location: 0.3),
+                                                             .init(color: Self.violeta, location: 0.65), .init(color: .white, location: 1)],
+                                                     startPoint: .top, endPoint: .bottom))
+                                .frame(width: x, height: h + 20)
+                                .blur(radius: 5)
+                        }
+                        ForEach(0..<n, id: \.self) { i in
+                            let xi = paso * (CGFloat(i) + 0.5)
+                            let alto = h * CGFloat(0.35 + 0.65 * ondaVolumen[i % ondaVolumen.count])
+                            let prendida = !silencio && xi <= x
+                            Rectangle()
+                                .fill(LinearGradient(colors: prendida ? [.white.opacity(0.95), .white.opacity(0.35)] : [.white.opacity(0.14), .white.opacity(0.05)],
+                                                     startPoint: .top, endPoint: .bottom))
+                                .frame(width: 1.6, height: alto)
+                                .position(x: xi, y: h - alto / 2)
+                        }
+                    }
+                }
+                .frame(height: 24)
+                .padding(.horizontal, FormaIsla.hombro + 6)
+            }
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .animation(Halo.cambio, value: valor)
