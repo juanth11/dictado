@@ -67,7 +67,7 @@ struct VistaIsla: View {
 
     @ViewBuilder private var contenido: some View {
         if estado.expandida {
-            Expandida(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, salud: salud,
+            Expandida(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, agentes: agentes, salud: salud,
                       unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() })
         } else if let actividad = estado.actividad {
             switch actividad {
@@ -90,6 +90,8 @@ struct VistaIsla: View {
                 SaludIsla(estado: estado, titulo: titulo, detalle: detalle, grave: grave) { control?.abrirSalud() }
             case .claude(let sesion, let necesita, let duracion):
                 ClaudeIsla(estado: estado, sesion: sesion, necesita: necesita, duracion: duracion) { control?.abrirClaude(sesion) }
+            case .agente(let nombre, let alerta, let caido):
+                AgenteIsla(estado: estado, nombre: nombre, alerta: alerta, caido: caido) { control?.verAgente(nombre) }
             }
         } else if alas {
             Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude)
@@ -400,6 +402,40 @@ private struct SaludIsla: View {
     }
 }
 
+/// Aviso de un agente de fuera del Mac: una tarea falló o el servidor no responde. "Ver" abre su detalle.
+private struct AgenteIsla: View {
+    let estado: EstadoIsla
+    let nombre: String
+    let alerta: String
+    let caido: Bool
+    let ver: () -> Void
+
+    var body: some View {
+        // "informe-diario falló: sin conexión" → título "informe-diario falló", detalle "sin conexión".
+        let partes = alerta.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+        Fila(notch: estado.notch) {
+            IconoSaltarin(simbolo: caido ? "server.rack" : "exclamationmark.triangle.fill",
+                          color: caido ? Gravedad.mal.color : Gravedad.atento.color)
+                .font(.system(size: 18))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(nombre.uppercased()).font(.system(size: 9, weight: .semibold, design: .monospaced)).tracking(1.1)
+                    .foregroundStyle(.white.opacity(0.45))
+                Text(partes.first ?? alerta).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                if partes.count > 1 {
+                    Text(partes[1]).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 6)
+            Button(action: ver) {
+                Text("Ver").font(.system(size: 12, weight: .semibold)).foregroundStyle(.black)
+                    .padding(.horizontal, 14).frame(height: 28)
+                    .background(Capsule().fill(.white)).contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
 /// Claude en el ala, sin animaciones continuas (cero CPU en reposo): estrella naranja con cuántas sesiones
 /// trabajan; si alguna te espera, punto naranja con brillo.
 private struct IndicadorClaude: View {
@@ -630,25 +666,38 @@ private struct FondoArte<Forma: Shape>: View {
 }
 
 private struct Expandida: View {
-    enum Pestana { case claude, agenda, mac }
+    enum Pestana { case agentes, agenda, mac }
 
     let estado: EstadoIsla
     let musica: Musica
     let agenda: Agenda
     let privacidad: Privacidad
     let claude: SesionesClaude
+    let agentes: AgentesRemotos
     let salud: EstadoSalud
     let unirse: (URL) -> Void
     let abrirSalud: () -> Void
     let medirSalud: () -> Void
     @State private var pestana: Pestana?
 
-    /// Sin elegir: lo que más importa ahora (Claude esperándote, el Mac en rojo, Claude trabajando, la agenda).
+    /// Sin elegir: lo que más importa ahora (un agente abierto desde su aviso, Claude esperándote, el Mac en rojo,
+    /// Claude trabajando o un agente con alerta, la agenda).
     private var porDefecto: Pestana {
-        if !claude.esperando.isEmpty { return .claude }
+        if estado.agenteAbierto != nil || !claude.esperando.isEmpty { return .agentes }
         if salud.diagnostico.gravedad == .mal { return .mac }
-        if claude.hayActividad { return .claude }
+        if claude.hayActividad || agentes.hayAlertas { return .agentes }
         return agenda.eventos.isEmpty ? .mac : .agenda
+    }
+
+    /// Punto en la píldora Agentes si un agente de fuera tiene alerta (rojo si no responde).
+    private var puntoAgentes: Color? {
+        if agentes.agentes.contains(where: { $0.estado == .caido }) { return AgentesRemotos.Estado.caido.color }
+        return agentes.hayAlertas ? AgentesRemotos.Estado.alerta.color : nil
+    }
+
+    private func elegir(_ p: Pestana) {
+        pestana = p
+        estado.agenteAbierto = nil
     }
 
     /// "Revisión de contrato · Arc" si coincide con una reunión en curso; si no, la app.
@@ -689,23 +738,30 @@ private struct Expandida: View {
                     .frame(width: 262, alignment: .leading)
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 4) {
-                        Pildora(titulo: "Claude", cuenta: claude.sesiones.count, activa: actual == .claude) {
-                            pestana = .claude
+                        Pildora(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
+                                activa: actual == .agentes) {
+                            elegir(.agentes)
                             claude.actualizarUso()
+                            agentes.refrescar()
                         }
-                        Pildora(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { pestana = .agenda }
+                        Pildora(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { elegir(.agenda) }
                         Pildora(titulo: "Mac", cuenta: 0, punto: salud.diagnostico.gravedad.color, activa: actual == .mac) {
-                            pestana = .mac
+                            elegir(.mac)
                             medirSalud()
                         }
                         Spacer(minLength: 4)
-                        if actual == .claude && claude.tokensHoy > 0 {
+                        if actual == .agentes && estado.agenteAbierto == nil && claude.tokensHoy > 0 {
                             ActividadDia(porHora: claude.porHora)
                                 .help("Hoy: \(claude.respuestasHoy) respuestas y \(Tiempo.tokens(claude.tokensHoy)) tokens escritos entre todas las sesiones")
                         }
                     }
                     switch actual {
-                    case .claude: ListaClaude(claude: claude)
+                    case .agentes:
+                        if let nombre = estado.agenteAbierto, let agente = agentes.agentes.first(where: { $0.nombre == nombre }) {
+                            DetalleAgente(agente: agente, consultando: agentes.consultando) { estado.agenteAbierto = nil }
+                        } else {
+                            ListaAgentes(claude: claude, agentes: agentes) { estado.agenteAbierto = $0 }
+                        }
                     case .agenda: ListaAgenda(agenda: agenda, unirse: unirse)
                     case .mac: ResumenMac(salud: salud, abrir: abrirSalud)
                     }
@@ -722,6 +778,7 @@ private struct Expandida: View {
             claude.actualizarUso()
             claude.vigilarActividad(true)
             if (pestana ?? porDefecto) == .mac { medirSalud() }
+            if (pestana ?? porDefecto) == .agentes { agentes.refrescar() }
         }
         .onDisappear { claude.vigilarActividad(false) }
     }
@@ -837,39 +894,51 @@ private struct Pildora: View {
     }
 }
 
-/// Sesiones de Claude: qué hace cada una, cuánto contexto lleva y el total de hoy.
-private struct ListaClaude: View {
+/// Pestaña Agentes: las sesiones de Claude Code de este Mac (qué hace cada una, cuánto contexto lleva) y,
+/// debajo, los agentes de fuera del Mac (ver Agentes.swift). Caben tres filas; los agentes de fuera siempre se ven.
+private struct ListaAgentes: View {
     let claude: SesionesClaude
+    let agentes: AgentesRemotos
+    let abrir: (String) -> Void
 
     var body: some View {
+        let remotos = Array(agentes.agentes.prefix(2))
         VStack(alignment: .leading, spacing: 7) {
-            if claude.sesiones.isEmpty {
+            if claude.sesiones.isEmpty && remotos.isEmpty {
                 Text("Sin sesiones abiertas").font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
             }
-            ForEach(claude.sesiones.prefix(3)) { s in
-                Button { SesionesClaude.abrir(s) } label: {
-                    HStack(spacing: 10) {
-                        EstadoSesion(estado: s.estado).frame(width: 16, height: 16)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(s.nombre).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
-                            Text(Tiempo.sesion(s))
-                                .font(.system(size: 10.5))
-                                .foregroundStyle(s.estado == .esperando ? Color.claude : .white.opacity(0.45))
-                                .lineLimit(1)
-                        }
-                        Spacer(minLength: 4)
-                        if s.contexto > 0 {
-                            Text(Tiempo.tokens(s.contexto))
-                                .font(.system(size: 9.5, weight: .medium, design: .monospaced))
-                                .foregroundStyle(.white.opacity(s.contexto > 600_000 ? 0.75 : 0.3))
-                                .help("Contexto de esta conversación. Si pasa de ~600 k conviene abrir una nueva.")
-                        }
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
+            ForEach(claude.sesiones.prefix(3 - remotos.count)) { FilaSesion(sesion: $0) }
+            ForEach(remotos) { a in FilaAgente(agente: a) { abrir(a.nombre) } }
         }
+    }
+}
+
+private struct FilaSesion: View {
+    let sesion: SesionesClaude.Sesion
+
+    var body: some View {
+        let s = sesion
+        Button { SesionesClaude.abrir(s) } label: {
+            HStack(spacing: 10) {
+                EstadoSesion(estado: s.estado).frame(width: 16, height: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(s.nombre).font(.system(size: 12.5, weight: .medium)).foregroundStyle(.white).lineLimit(1)
+                    Text(Tiempo.sesion(s))
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(s.estado == .esperando ? Color.claude : .white.opacity(0.45))
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                if s.contexto > 0 {
+                    Text(Tiempo.tokens(s.contexto))
+                        .font(.system(size: 9.5, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.white.opacity(s.contexto > 600_000 ? 0.75 : 0.3))
+                        .help("Contexto de esta conversación. Si pasa de ~600 k conviene abrir una nueva.")
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1115,6 +1184,16 @@ enum Tiempo {
         if n >= 1_000_000 { return String(format: "%.1f M", Double(n) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
         if n >= 1_000 { return "\(n / 1_000) k" }
         return "\(n)"
+    }
+
+    /// "3:00 a. m." si es hoy; "mañana 3:00 a. m.", "ayer 8:03 a. m." o "lun. 8:00 a. m." si no.
+    static func hora(_ fecha: Date) -> String {
+        let formato = DateFormatter()
+        formato.locale = Locale(identifier: "es_CO")
+        let cal = Calendar.current
+        formato.dateFormat = cal.isDateInToday(fecha) || cal.isDateInTomorrow(fecha) || cal.isDateInYesterday(fecha) ? "h:mm a" : "EEE h:mm a"
+        let dia = cal.isDateInTomorrow(fecha) ? "mañana " : cal.isDateInYesterday(fecha) ? "ayer " : ""
+        return dia + formato.string(from: fecha)
     }
 
     /// "2:04 – 2:49 p. m." (formato colombiano de 12 horas).

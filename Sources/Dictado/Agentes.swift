@@ -78,8 +78,7 @@ final class AgentesRemotos {
         ultimaConsulta = Date()
         let fuentes = self.fuentes
         Task.detached(priority: .utility) {
-            var resultados: [Agente] = []
-            for f in fuentes { resultados.append(Self.consultar(nombre: f.nombre, comando: f.comando)) }
+            let resultados = fuentes.map { Self.consultar(nombre: $0.nombre, comando: $0.comando) }
             await MainActor.run { [weak self] in
                 guard let self else { return }
                 self.consultando = false

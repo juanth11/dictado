@@ -284,7 +284,7 @@ func hojaCaptura(_ destino: URL) -> Bool {
 
 /// Render de la isla: reposo, abierta y sus actividades. `Dictado --vista-isla salida.png`
 @MainActor
-func hojaIsla(_ destino: URL) -> Bool {
+func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     let fondo = fondoDeMuestra()
     let caratula = NSImage(size: NSSize(width: 300, height: 300))
     caratula.lockFocus()
@@ -292,7 +292,8 @@ func hojaIsla(_ destino: URL) -> Bool {
                operation: .copy, fraction: 1)
     caratula.unlockFocus()
     let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome").map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path)) }
-    enum Escena { case compacta, abierta, abiertaAgenda, dictado, privacidad, cancion, evento, volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, abiertaMac }
+    enum Escena { case compacta, abierta, abiertaAgenda, dictado, privacidad, cancion, evento, volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, abiertaMac,
+                 abiertaAgentes, abiertaAgenteAlerta, agenteDetalle, agenteDetalleAlerta, agenteAviso, agenteCaido }
     func escena(_ tipo: Escena) -> some View {
         let estado = EstadoIsla()
         estado.notch = CGSize(width: 186, height: 32)
@@ -359,6 +360,22 @@ func hojaIsla(_ destino: URL) -> Bool {
         case .abiertaMac:
             estado.expandida = true
             claude.sesiones = []
+        case .abiertaAgentes:
+            estado.expandida = true
+        case .abiertaAgenteAlerta:
+            estado.expandida = true
+            agentes.agentes = ejemploAgentes(alerta: true).agentes
+        case .agenteDetalle:
+            estado.expandida = true
+            estado.agenteAbierto = agentes.agentes[0].nombre
+        case .agenteDetalleAlerta:
+            estado.expandida = true
+            agentes.agentes = ejemploAgentes(alerta: true).agentes
+            estado.agenteAbierto = agentes.agentes[0].nombre
+        case .agenteAviso:
+            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "resumen-finanzas falló: el banco no respondió", caido: false)
+        case .agenteCaido:
+            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "El servidor no responde por SSH", caido: true)
         case .abierta:
             estado.expandida = true
             privacidad.camara = true
@@ -390,6 +407,20 @@ func hojaIsla(_ destino: URL) -> Bool {
         .frame(width: 700, height: 210)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
+    if soloAgentes {
+        let hoja = VStack(spacing: 14) {
+            HStack(spacing: 14) { escena(.agenteAviso); escena(.agenteCaido) }
+            HStack(spacing: 14) { escena(.abiertaAgentes); escena(.abiertaAgenteAlerta) }
+            HStack(spacing: 14) { escena(.agenteDetalle); escena(.agenteDetalleAlerta) }
+        }
+        .padding(14)
+        .background(Color(white: 0.08))
+        let renderer = ImageRenderer(content: hoja)
+        renderer.scale = 2
+        guard let cg = renderer.cgImage,
+              let png = NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]) else { return false }
+        return (try? png.write(to: destino)) != nil
+    }
     let hoja = VStack(spacing: 14) {
         HStack(spacing: 14) { escena(.compacta); escena(.dictado) }
         HStack(spacing: 14) { escena(.privacidad); escena(.cancion) }
@@ -398,9 +429,11 @@ func hojaIsla(_ destino: URL) -> Bool {
         HStack(spacing: 14) { escena(.silencio); escena(.compacta) }
         HStack(spacing: 14) { escena(.claudeNecesita); escena(.claudeTermino) }
         HStack(spacing: 14) { escena(.llamada); escena(.saludAviso) }
+        HStack(spacing: 14) { escena(.agenteAviso); escena(.agenteCaido) }
         escena(.abiertaAgenda)
         escena(.abiertaMac)
         escena(.abierta)
+        escena(.agenteDetalle)
     }
     .padding(14)
     .background(Color(white: 0.08))
@@ -555,20 +588,30 @@ func fondoDeMuestra() -> NSImage {
     return imagen
 }
 
-/// Datos de ejemplo de agentes remotos para los renders.
+/// Datos de ejemplo de agentes remotos para los renders. `alerta`: una tarea falló.
 @MainActor
-func ejemploAgentes() -> AgentesRemotos {
+func ejemploAgentes(alerta: Bool = false) -> AgentesRemotos {
     let a = AgentesRemotos(vivo: false)
-    let hoy = Calendar.current.startOfDay(for: Date())
+    let ahora = Date()
+    let hoy = Calendar.current.startOfDay(for: ahora)
     func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
+    let enUnRato = min(ahora.addingTimeInterval(5400), h(23.8))   // algo que falta hoy
     a.agentes = [AgentesRemotos.Agente(
-        nombre: "Agente del servidor", estado: .ok, resumen: "8 tareas activas · todo bien", alertas: [],
+        nombre: "Agente del servidor", estado: alerta ? .alerta : .ok,
+        resumen: alerta ? "6 tareas activas · 1 con error" : "6 tareas activas · todo bien",
+        alertas: alerta ? ["resumen-finanzas falló: el banco no respondió"] : [],
         tareas: [
-            .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+            .init(nombre: "copia-nocturna", estado: "ok", ultima: h(2), proxima: h(26), detalle: "todos los días a las 2"),
             .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
-            .init(nombre: "revision-semanal", estado: "corriendo", ultima: h(10), proxima: nil, detalle: "lunes 10:00"),
+            .init(nombre: "resumen-finanzas", estado: alerta ? "error" : "ok", ultima: h(7), proxima: h(31),
+                  detalle: "todos los días a las 7"),
+            .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+            .init(nombre: "revisar-correo", estado: "ok", ultima: enUnRato.addingTimeInterval(-86_400), proxima: enUnRato,
+                  detalle: "todos los días"),
+            .init(nombre: "revision-semanal", estado: "corriendo", ultima: ahora.addingTimeInterval(-120), proxima: nil,
+                  detalle: "lunes 10:00"),
             .init(nombre: "radar-contenidos", estado: "pausada", ultima: h(-700), proxima: nil, detalle: ""),
         ],
-        actualizado: Date())]
+        actualizado: ahora)]
     return a
 }

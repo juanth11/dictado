@@ -300,11 +300,13 @@ final class EstadoIsla {
         case nivel(tipo: Niveles.Tipo, valor: Double, silencio: Bool)
         case claude(sesion: SesionesClaude.Sesion, necesita: Bool, duracion: TimeInterval)
         case salud(titulo: String, detalle: String, grave: Bool)
+        case agente(nombre: String, alerta: String, caido: Bool)
     }
 
     var expandida = false
     var notch = CGSize(width: 200, height: 32)
     var actividad: Actividad?
+    var agenteAbierto: String?   // agente de fuera del Mac con su detalle abierto en la pestaña Agentes
     var idActividad = UUID()     // cambia con cada actividad: dispara la animación de entrada
     var inicioActividad = Date()
 
@@ -320,7 +322,7 @@ final class EstadoIsla {
         case .evento: return CGSize(width: w + 2 * 150, height: h + 52)
         case .carga: return CGSize(width: w + 2 * 70, height: h)
         case .claude: return CGSize(width: w + 2 * 140, height: h + 58)
-        case .salud: return CGSize(width: w + 2 * 130, height: h + 50)
+        case .salud, .agente: return CGSize(width: w + 2 * 130, height: h + 50)
         case .nivel: return CGSize(width: w + 2 * 76, height: h + 38)
         case nil: return CGSize(width: w + (alas ? 2 * 46 : 0) + (punto ? 2 * 14 : 0), height: h)
         }
@@ -335,7 +337,7 @@ final class EstadoIsla {
     var reunionConBoton: Bool {
         switch actividad {
         case .evento(_, _, _, let enlace): return enlace != nil
-        case .claude, .salud: return true
+        case .claude, .salud, .agente: return true
         default: return false
         }
     }
@@ -380,7 +382,9 @@ final class Isla {
                           segundos: e.enlace == nil ? 7 : 20)
         }
         agentes.alAlertar = { [weak self] agente, alerta in
-            self?.mostrar(.salud(titulo: agente, detalle: alerta, grave: true), segundos: 8)
+            guard let self else { return }
+            let caido = self.agentes.agentes.first { $0.nombre == agente }?.estado == .caido
+            self.mostrar(.agente(nombre: agente, alerta: alerta, caido: caido), segundos: 8)
         }
         claude.alNecesitar = { [weak self] s in
             self?.mostrar(.claude(sesion: s, necesita: true, duracion: 0), segundos: 12)
@@ -516,6 +520,13 @@ final class Isla {
 
     func medirSalud() { salud.medirAhora() }
 
+    /// Desde el aviso de un agente ("Ver"): abre la isla en la pestaña Agentes con su detalle.
+    func verAgente(_ nombre: String) {
+        quitarActividad()
+        estado.agenteAbierto = nombre
+        expandir()
+    }
+
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {
         if sesion?.id != "prueba" { SesionesClaude.abrir(sesion) }
@@ -561,6 +572,9 @@ final class Isla {
                     self.mostrar(.claude(sesion: prueba, necesita: true, duracion: 0), segundos: 6)
                 case "salud":
                     self.mostrar(.salud(titulo: "Disco casi lleno", detalle: "Quedan 7,9 GB libres", grave: true), segundos: 6)
+                case "agente":
+                    self.mostrar(.agente(nombre: "Prueba de agente", alerta: "informe-diario falló: sin conexión con el correo",
+                                         caido: false), segundos: 6)
                 case "privacidad":
                     self.privacidad.microfono = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { self.privacidad.revisar() } }
@@ -638,6 +652,7 @@ final class Isla {
             MainActor.assumeIsolated {
                 guard let self, self.estado.expandida else { return }
                 self.estado.expandida = false
+                self.estado.agenteAbierto = nil
                 self.ajustar()
             }
         }
