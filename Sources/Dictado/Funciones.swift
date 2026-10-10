@@ -29,11 +29,11 @@ enum Funcion: String, CaseIterable {
     }
 
     var activa: Bool {
-        UserDefaults(suiteName: "app.dictado")?.object(forKey: "funcion." + rawValue) as? Bool ?? true
+        UserDefaults.dictado.object(forKey: "funcion." + rawValue) as? Bool ?? true
     }
 
     func poner(_ si: Bool) {
-        UserDefaults(suiteName: "app.dictado")?.set(si, forKey: "funcion." + rawValue)
+        UserDefaults.dictado.set(si, forKey: "funcion." + rawValue)
         NotificationCenter.default.post(name: .funcionesCambiaron, object: nil, userInfo: ["funcion": rawValue])
     }
 }

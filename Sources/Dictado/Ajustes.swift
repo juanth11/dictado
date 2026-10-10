@@ -6,8 +6,16 @@ import Foundation
 ///   defaults write app.dictado estilo prisma|aurora|orbe|…   (también desde el menú)
 ///   defaults write app.dictado inbox "/ruta/a/tus/ideas"      (adónde van las ideas de ⌥⇧Espacio)
 ///   defaults write app.dictado protegidas -array "/ruta/1" "/ruta/2"   (carpetas que la limpieza jamás toca)
+extension UserDefaults {
+    /// El dominio app.dictado. Dentro de la app (bundle app.dictado) es `.standard`: macOS no deja usar el propio
+    /// identificador como suite ("will not work") y esos ajustes se perdían en silencio. Fuera del bundle (el binario
+    /// de línea de comandos en .build) se lee como suite.
+    static let dictado: UserDefaults = Bundle.main.bundleIdentifier == "app.dictado"
+        ? .standard : (UserDefaults(suiteName: "app.dictado") ?? .standard)
+}
+
 struct Ajustes {
-    private let d = UserDefaults(suiteName: "app.dictado") ?? .standard
+    private let d = UserDefaults.dictado
 
     // No hay modelo es-CO: es-CO cae en es_ES. es-US (español latinoamericano) se acerca más al acento colombiano.
     var idioma: String { d.string(forKey: "idioma") ?? "es-US" }
@@ -29,7 +37,7 @@ struct Ajustes {
 
     /// Carpetas que la limpieza nunca propone tocar (además de iCloud y los contenedores de apps).
     static var carpetasProtegidas: [String] {
-        UserDefaults(suiteName: "app.dictado")?.stringArray(forKey: "protegidas") ?? []
+        UserDefaults.dictado.stringArray(forKey: "protegidas") ?? []
     }
 
     static var archivoVocabulario: URL {

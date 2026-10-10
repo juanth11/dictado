@@ -355,7 +355,7 @@ enum EstiloVolumen: String {
 
     static var actual: EstiloVolumen {
         let valor = ProcessInfo.processInfo.environment["DICTADO_VOLUMEN"]
-            ?? UserDefaults(suiteName: "app.dictado")?.string(forKey: "estiloVolumen")
+            ?? UserDefaults.dictado.string(forKey: "estiloVolumen")
         return valor.flatMap(EstiloVolumen.init(rawValue:)) ?? .bruma
     }
 }

@@ -456,7 +456,7 @@ enum MapeoHyper {
 
     // MARK: Sistema
 
-    private static var ajustes: UserDefaults? { UserDefaults(suiteName: "app.dictado") }
+    private static var ajustes: UserDefaults? { UserDefaults.dictado }
 
     /// true mientras Dictado tenga el mapeo puesto (sobrevive a un cierre brusco: al abrir se limpia).
     static var aplicado: Bool { ajustes?.bool(forKey: "hyper.aplicado") ?? false }

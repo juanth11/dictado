@@ -223,7 +223,7 @@ enum CLI {
             return 0
         }
         if args.contains("--agentes") {
-            let lista = UserDefaults(suiteName: "app.dictado")?.array(forKey: "agentes") as? [[String: Any]] ?? []
+            let lista = UserDefaults.dictado.array(forKey: "agentes") as? [[String: Any]] ?? []
             if lista.isEmpty { print("sin agentes configurados (defaults write app.dictado agentes …)") }
             for d in lista {
                 guard let n = d["nombre"] as? String, let cmd = d["comando"] as? String else { continue }

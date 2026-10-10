@@ -50,7 +50,7 @@ enum DestinoCaptura: String, CaseIterable {
 
 @MainActor @Observable
 final class EstadoCaptura {
-    private static let ajustes = UserDefaults(suiteName: "app.dictado")
+    private static let ajustes: UserDefaults? = UserDefaults.dictado
 
     var seleccion = 0
     var destino = DestinoCaptura(rawValue: ajustes?.string(forKey: "capturaDestino") ?? "") ?? .portapapeles {

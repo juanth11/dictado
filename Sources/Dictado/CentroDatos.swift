@@ -144,7 +144,7 @@ final class CentroStore {
     static let cache = URL(fileURLWithPath: NSHomeDirectory() + "/Library/Caches/app.dictado/centro.json")
 
     static var comando: String? {
-        let c = UserDefaults(suiteName: "app.dictado")?.dictionary(forKey: "centro")?["comando"] as? String
+        let c = UserDefaults.dictado.dictionary(forKey: "centro")?["comando"] as? String
         return (c?.isEmpty ?? true) ? nil : c
     }
 

@@ -64,7 +64,7 @@ final class AgentesRemotos {
     var configurados: Bool { !fuentes.isEmpty }
 
     private func cargarFuentes() {
-        let lista = UserDefaults(suiteName: "app.dictado")?.array(forKey: "agentes") as? [[String: Any]] ?? []
+        let lista = UserDefaults.dictado.array(forKey: "agentes") as? [[String: Any]] ?? []
         fuentes = lista.compactMap { d in
             guard let n = d["nombre"] as? String, let c = d["comando"] as? String, !n.isEmpty, !c.isEmpty else { return nil }
             return (n, c)

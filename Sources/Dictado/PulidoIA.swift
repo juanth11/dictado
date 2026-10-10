@@ -99,7 +99,7 @@ final class PulidoIA {
     /// ~3 s para un dictado corto; los largos tienen un poco más porque el modelo escribe palabra por palabra.
     /// Con el Mac muy ocupado el modelo puede pasar de 3 s: `defaults write app.dictado pulidoLimite -float 4`.
     static func limite(palabras: Int) -> Double {
-        let base = UserDefaults(suiteName: "app.dictado")?.object(forKey: "pulidoLimite") as? Double ?? 3
+        let base = UserDefaults.dictado.object(forKey: "pulidoLimite") as? Double ?? 3
         return min(base + Double(max(palabras - 40, 0)) * 0.03, base * 2)
     }
 
