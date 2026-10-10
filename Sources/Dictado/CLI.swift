@@ -210,6 +210,20 @@ enum CLI {
             return 0
         }
 
+        // Agentes remotos configurados en el ajuste `agentes`, como los ve la pestaña Agentes.
+        if args.contains("--agentes") {
+            let lista = UserDefaults(suiteName: "app.dictado")?.array(forKey: "agentes") as? [[String: Any]] ?? []
+            if lista.isEmpty { print("sin agentes configurados (defaults write app.dictado agentes …)") }
+            for d in lista {
+                guard let n = d["nombre"] as? String, let cmd = d["comando"] as? String else { continue }
+                let a = AgentesRemotos.consultar(nombre: n, comando: cmd)
+                print("· \(a.nombre): \(a.estado.rawValue) — \(a.resumen)\(a.error.map { " (\($0))" } ?? "")")
+                a.alertas.forEach { print("  ⚠︎ \($0)") }
+                a.tareas.forEach { print("  \($0.estado) \($0.nombre)") }
+            }
+            return 0
+        }
+
         // Sesiones de Claude y tokens de hoy, como los ve la isla (solo lectura de ~/.claude).
         if args.contains("--claude") {
             let sesiones = await MainActor.run { () -> [SesionesClaude.Sesion] in

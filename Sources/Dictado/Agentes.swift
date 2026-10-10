@@ -95,7 +95,7 @@ final class AgentesRemotos {
     }
 
     /// Ejecuta el comando (máximo 20 s) y lee su JSON.
-    nonisolated private static func consultar(nombre: String, comando: String) -> Agente {
+    nonisolated static func consultar(nombre: String, comando: String) -> Agente {
         var agente = Agente(nombre: nombre, actualizado: Date())
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/zsh")
