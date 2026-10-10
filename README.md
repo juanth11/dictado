@@ -52,8 +52,11 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
   - **Seguro:** cachés de apps cerradas, cachés internas de apps tipo Chrome/Electron, cachés de programación (uv, npm, Playwright…), dependencias (`node_modules`, `.venv`) de proyectos sin tocar hace 60 días, registros y versiones viejas. Todo va **a la Papelera** y se puede **deshacer**. Cada categoría se despliega para marcar y desmarcar elemento por elemento.
   - **Cerrar y limpiar:** para apps abiertas con cachés grandes (como Arc), las cierra como ⌘Q, limpia y las vuelve a abrir como estaban.
   - **Revisa tú:** lo que es tuyo (fotos de WhatsApp, Notas de Voz, archivos grandes o duplicados, descargas viejas, apps grandes) **nunca se borra solo**: te muestra cuánto ocupa y te lleva al lugar.
-  - **Nunca toca:** iCloud, contenedores de otras apps, nada que esté en uso, ni tus carpetas protegidas. Tampoco hace "liberar RAM", escaneos de malware de mentira ni cambios al sistema.
-- **Avisos en la isla** si el disco baja de 10 GB, la memoria llega al límite, el Mac se calienta o una app pasa 2 minutos al máximo.
+  - **Nunca toca:** contenedores de otras apps, nada que esté en uso, ni tus carpetas protegidas; de iCloud solo quita descargas, nunca borra. Tampoco hace "liberar RAM", escaneos de malware de mentira ni cambios al sistema.
+  - **Liberar ya:** borra para siempre solo lo que Dictado mandó a la Papelera (por defecto, lo de más de 7 días), siempre preguntando con el tamaño, y cada limpieza dice cuánto espacio ganó el disco de verdad.
+  - **Quitar descargas de iCloud** (opcional, menú Funciones): archivos de 50 MB o más que ya están en iCloud y no abres hace una semana; siguen en la nube y se descargan al abrirlos.
+  - **Espacio oculto:** te dice, en palabras simples, si hay una actualización de macOS descargada, cuánta memoria de reserva hay en disco y cuánto puede liberar macOS solo.
+- **Avisos en la isla** si el disco baja de 10 GB, la memoria llega al límite, el Mac se calienta, una app pasa 2 minutos al máximo o lo que Dictado dejó en la Papelera ya suma 1 GB con el disco justo.
 
 ### Portapapeles, captura y dictado
 
@@ -125,7 +128,7 @@ Después de cambiar un ajuste con `defaults`, reinicia Dictado (menú → Salir 
 - El portapapeles vive en `~/Library/Application Support/Dictado/Portapapeles` y salta lo que las apps marcan como contraseña.
 - Lo único que sale a internet es la consulta de la carátula de Spotify (el oEmbed público de Spotify).
 - La parte de Claude Code **solo lee** `~/.claude/sessions` y los transcriptos; nunca escribe ahí.
-- La limpieza mueve a la Papelera y anota cada movimiento en `limpiezas.json` para poder deshacer. Vaciar la Papelera lo decides tú desde el Finder.
+- La limpieza mueve a la Papelera y anota cada movimiento en `limpiezas.json` para poder deshacer. Borrar para siempre lo decides tú: «Liberar ya» solo borra lo que mandó Dictado y pregunta antes.
 
 ## Cómo está hecho
 
@@ -140,7 +143,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `Isla.swift`, `VistaIsla.swift` | La isla del notch (música, agenda, llamadas, actividades) |
 | `Claude.swift` | Sesiones de Claude Code (solo lectura) |
 | `Privacidad.swift`, `Niveles.swift` | Cámara y micrófono en uso; volumen y brillo |
-| `Salud.swift`, `VistaSalud.swift` | Medidor, escáner de limpieza y bitácora para deshacer |
+| `Salud.swift`, `VistaSalud.swift`, `Papelera.swift`, `ICloud.swift` | Medidor, escáner de limpieza, bitácora para deshacer, "Liberar ya" y descargas de iCloud |
 | `HUD.swift`, `Estilos*.swift`, `Diseno.swift` | Indicador de dictado y lenguaje visual |
 | `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--vista-isla salida.png`) |
 

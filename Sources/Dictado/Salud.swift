@@ -40,7 +40,7 @@ struct ItemLimpieza: Identifiable, Equatable {
 
 /// Algo que ocupa disco y qué hacer con ello.
 struct Limpiable: Identifiable {
-    enum Accion { case papelera, cerrarYLimpiar(String), abrirApp(String), mostrar }
+    enum Accion { case papelera, cerrarYLimpiar(String), quitarDescarga, abrirApp(String), mostrar }
     let id: String
     let titulo: String
     var detalle: String
@@ -49,12 +49,18 @@ struct Limpiable: Identifiable {
     var accion: Accion
     var boton: String
 
-    /// Seguras: se regeneran solas y van a la Papelera. Las demás son tuyas: solo se muestran.
+    /// Seguras: se regeneran solas y van a la Papelera, o siguen en iCloud. Las demás son tuyas: solo se muestran.
     var segura: Bool {
         switch accion {
-        case .papelera, .cerrarYLimpiar: return true
+        case .papelera, .cerrarYLimpiar, .quitarDescarga: return true
         default: return false
         }
+    }
+
+    /// Quitar descargas de iCloud: no pasa por la Papelera; el archivo sigue en la nube.
+    var esNube: Bool {
+        if case .quitarDescarga = accion { return true }
+        return false
     }
 
     var total: Int64 { items.reduce(0) { $0 + $1.bytes } }
@@ -73,12 +79,16 @@ final class EstadoSalud {
     var presion = 1                 // 1 normal, 2 apretada, 4 al límite (lo que usa macOS)
     var discoLibre = 0.0
     var discoTotal = 1.0
+    var discoPurgable = 0.0         // lo que macOS puede liberar solo (ya cuenta en discoLibre)
     var termico = ProcessInfo.ThermalState.nominal
     var consumidores: [Consumidor] = []
     var limpiables: [Limpiable] = []
     var analizando = false
     var mensaje = ""                // resultado de la última limpieza
-    var ultima: RegistroLimpieza? = Bitacora.todas().last.flatMap { Date().timeIntervalSince($0.fecha) < 7 * 86_400 ? $0 : nil }
+    var ocupado = false             // moviendo, liberando o quitando descargas: no se encadena otra acción
+    var ultima: RegistroLimpieza? = Bitacora.ultimaDeshacible()
+    var pendientes: [Bitacora.Pendiente] = []  // lo que Dictado mandó a la Papelera y sigue allí
+    var actualizacionLista = false  // hay una actualización de macOS descargada y preparada
     var abiertos: Set<String> = []  // categorías desplegadas
     var pestana = 0                 // 0 ahora · 1 limpieza
 
@@ -95,6 +105,8 @@ final class EstadoSalud {
     }
 
     var recuperable: Int64 { limpiables.filter(\.segura).reduce(0) { $0 + $1.bytes } }
+    /// Lo que "Liberar ya" puede borrar para siempre (solo lo que mandó Dictado).
+    var papeleraTotal: Int64 { pendientes.reduce(0) { $0 + $1.bytes } }
     var revisable: Int64 { limpiables.filter { !$0.segura }.reduce(0) { $0 + $1.bytes } }
 
     /// Lo más grave, en una frase que entienda cualquiera.
@@ -168,6 +180,10 @@ final class Salud {
         NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: panel, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.cerrar() }
         }
+        NotificationCenter.default.addObserver(forName: .funcionesCambiaron, object: nil, queue: .main) { [weak self] aviso in
+            guard aviso.userInfo?["funcion"] as? String == Funcion.icloud.rawValue else { return }
+            MainActor.assumeIsolated { self?.cambioICloud() }
+        }
         medir(alertar: false)
         relojFondo = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.medir(alertar: true) }
@@ -226,10 +242,13 @@ final class Salud {
         let medidor = self.medidor
         cola.async { [weak self] in
             let m = medidor.medir()
+            // Lo que Dictado dejó en la Papelera solo importa para avisar cuando falta disco.
+            let pendientes = alertar && m.disco.disponible < 20e9 ? Bitacora.pendientes() : nil
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.aplicar(m)
+                    if let pendientes { self.estado.pendientes = pendientes }
                     if alertar { self.revisarAlertas() }
                 }
             }
@@ -242,10 +261,15 @@ final class Salud {
         estado.memoriaUsada = m.memoriaUsada
         estado.swap = m.swap
         estado.presion = m.presion
-        estado.discoLibre = m.discoLibre
-        estado.discoTotal = m.discoTotal
+        aplicarDisco(m.disco)
         estado.termico = ProcessInfo.processInfo.thermalState
         estado.consumidores = agrupar(m.procesos)
+    }
+
+    private func aplicarDisco(_ d: Medidor.Disco) {
+        estado.discoLibre = d.disponible
+        estado.discoTotal = d.total
+        estado.discoPurgable = max(0, d.disponible - d.libre)
     }
 
     /// Junta los procesos por la app dueña (Claude con sus ayudantes, Arc con sus pestañas) y nombra los
@@ -290,9 +314,11 @@ final class Salud {
 
     /// Avisos en la isla, uno por problema y con pausa para no insistir.
     private func revisarAlertas() {
+        var emitido = false
         func avisar(_ clave: String, horas: Double, _ titulo: String, _ detalle: String, _ g: Gravedad) {
             if let antes = avisados[clave], Date().timeIntervalSince(antes) < horas * 3600 { return }
             avisados[clave] = Date()
+            emitido = true
             alAlertar?(titulo, detalle, g)
         }
         let e = estado
@@ -311,6 +337,12 @@ final class Salud {
             }
         }
         alTope = siguen
+        // Lo que Dictado mandó a la Papelera sigue ocupando disco: una vez al día, y nunca encima de otro aviso
+        // (si coincide, sale en la siguiente vuelta).
+        if !emitido, e.gravedadDisco != .bien, e.papeleraTotal >= 1_000_000_000 {
+            avisar("papelera", horas: 24, "\(Medida.bytes(Double(e.papeleraTotal))) listos para liberar",
+                   "Salud del Mac → Limpieza → Liberar ya", e.gravedadDisco)
+        }
     }
 
     // MARK: Acciones
@@ -324,12 +356,38 @@ final class Salud {
         estado.analizando = true
         estado.mensaje = ""
         let abiertas = Escaner.appsAbiertas()
+        let icloud = Funcion.icloud.activa
         cola.async { [weak self] in
-            let lista = Escaner.analizar(abiertas: abiertas)
+            let lista = Escaner.analizar(abiertas: abiertas, icloud: icloud)
+            let pendientes = Bitacora.pendientes()
+            let actualizacion = EspacioOculto.actualizacionPreparada()
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self?.estado.limpiables = lista
-                    self?.estado.analizando = false
+                    guard let self else { return }
+                    // Si apagaste iCloud mientras se analizaba, la categoría no vuelve a aparecer.
+                    self.estado.limpiables = Funcion.icloud.activa ? lista : lista.filter { !$0.esNube }
+                    self.estado.pendientes = pendientes
+                    self.estado.actualizacionLista = actualizacion
+                    self.estado.analizando = false
+                }
+            }
+        }
+    }
+
+    /// Al prender o apagar "Quitar descargas de iCloud". Apagada, la categoría desaparece al instante; prendida,
+    /// se busca solo en iCloud y se suma al análisis que ya había (sin análisis previo, se hará al abrir el panel).
+    private func cambioICloud() {
+        guard Funcion.icloud.activa else {
+            estado.limpiables.removeAll { $0.esNube }
+            return
+        }
+        guard !estado.limpiables.isEmpty || abierto else { return }
+        cola.async { [weak self] in
+            let nube = Escaner.descargasICloud()
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self, Funcion.icloud.activa else { return }
+                    self.estado.limpiables = Escaner.ordenar(self.estado.limpiables.filter { !$0.esNube } + nube)
                 }
             }
         }
@@ -338,10 +396,18 @@ final class Salud {
     func ejecutar(_ l: Limpiable) {
         switch l.accion {
         case .papelera:
-            let r = Bitacora.mover(l.marcados, titulo: l.titulo)
-            terminarLimpieza(r, titulo: l.titulo)
+            guard !estado.ocupado else { return }
+            estado.ocupado = true
+            estado.mensaje = "Moviendo a la Papelera…"
+            let items = l.marcados, titulo = l.titulo
+            Task { @MainActor in
+                let (r, liberado, disco) = await conMedicion { Bitacora.mover(items, titulo: titulo) }
+                terminarLimpieza(r, titulo: titulo, liberado: liberado, disco: disco)
+            }
         case .cerrarYLimpiar(let bundle):
             cerrarYLimpiar(l, bundle: bundle)
+        case .quitarDescarga:
+            quitarDescargas(l)
         case .abrirApp(let bundle):
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
                 NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration())
@@ -354,47 +420,185 @@ final class Salud {
         }
     }
 
-    private func terminarLimpieza(_ r: RegistroLimpieza, titulo: String) {
+    /// Ir a la Papelera no libera espacio: el mensaje dice cuánto ganó el disco de verdad (casi siempre nada todavía).
+    private func terminarLimpieza(_ r: RegistroLimpieza, titulo: String, liberado: Double, disco: Medidor.Disco) {
+        estado.ocupado = false
+        aplicarDisco(disco)
+        analizar()  // primero: limpia el mensaje anterior
         if r.movimientos.isEmpty {
             estado.mensaje = "No se pudo mover nada: puede que una app lo esté usando."
         } else {
             estado.ultima = r
-            estado.mensaje = "\(Medida.bytes(Double(r.bytes))) de \(titulo.lowercased()) a la Papelera. Se libera al vaciarla; puedes deshacer."
+            let movido = "\(Medida.bytes(Double(r.bytes))) de \(titulo.lowercased()) a la Papelera (puedes deshacer)."
+            estado.mensaje = liberado >= 10e6
+                ? movido + " El disco ganó \(Medida.bytes(liberado)) de verdad; el resto se libera con «Liberar ya»."
+                : movido + " El disco todavía no gana espacio: se libera con «Liberar ya» o al vaciar la Papelera."
         }
-        analizar()
     }
 
     /// Cierra la app como ⌘Q (si tiene algo sin guardar, te pregunta y no se toca nada), limpia su caché y la
     /// vuelve a abrir (Arc y los navegadores restauran sus pestañas).
     private func cerrarYLimpiar(_ l: Limpiable, bundle: String) {
+        guard !estado.ocupado else { return }
         let nombre = Escaner.nombreApp(bundle)
         let app = NSRunningApplication.runningApplications(withBundleIdentifier: bundle).first
         app?.terminate()
+        estado.ocupado = true
         estado.mensaje = "Cerrando \(nombre)…"
+        let items = l.marcados, titulo = l.titulo
         Task { @MainActor in
             for _ in 0..<60 where app?.isTerminated == false { try? await Task.sleep(for: .milliseconds(250)) }
             guard app?.isTerminated != false else {
+                estado.ocupado = false
                 estado.mensaje = "\(nombre) no se cerró (quizá tenía algo sin guardar). No toqué nada."
                 return
             }
             try? await Task.sleep(for: .milliseconds(600))
-            let r = Bitacora.mover(l.marcados, titulo: l.titulo)
+            let (r, liberado, disco) = await conMedicion { Bitacora.mover(items, titulo: titulo) }
             if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
                 let config = NSWorkspace.OpenConfiguration()
                 config.activates = false
                 NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in }
             }
-            terminarLimpieza(r, titulo: l.titulo)
+            terminarLimpieza(r, titulo: titulo, liberado: liberado, disco: disco)
         }
     }
 
     /// Devuelve a su lugar lo de la última limpieza.
     func deshacer() {
-        guard let r = estado.ultima else { return }
+        guard let r = estado.ultima, !estado.ocupado else { return }
         let vueltos = Bitacora.deshacer(r)
         estado.ultima = nil
-        estado.mensaje = vueltos > 0 ? "Listo: devolví \(vueltos) elemento\(vueltos == 1 ? "" : "s") a su lugar." : "Ya no estaban en la Papelera."
         analizar()
+        estado.mensaje = vueltos > 0 ? "Listo: devolví \(vueltos) elemento\(vueltos == 1 ? "" : "s") a su lugar." : "Ya no estaban en la Papelera."
+    }
+
+    // MARK: Liberar de verdad
+
+    /// "Liberar ya": borra para siempre solo lo que Dictado mandó a la Papelera y sigue allí. Pregunta siempre
+    /// con el tamaño; lo que lleva menos de 7 días necesita una confirmación aparte.
+    func liberar() {
+        guard !estado.ocupado else { return }
+        estado.ocupado = true
+        estado.mensaje = "Midiendo lo que Dictado dejó en la Papelera…"
+        Task { @MainActor in
+            let pendientes = await enCola { Bitacora.pendientes(medir: true) }
+            estado.pendientes = pendientes
+            guard let elegidos = confirmarLiberar(pendientes) else {
+                estado.ocupado = false
+                estado.mensaje = pendientes.isEmpty ? "Ya no queda nada de Dictado en la Papelera." : ""
+                return
+            }
+            let previsto = elegidos.reduce(0) { $0 + $1.bytes }
+            estado.mensaje = "Borrando \(Medida.bytes(Double(previsto)))…"
+            let (r, liberado, disco) = await conMedicion(esperado: { $0.bytes }) { Bitacora.liberar(elegidos) }
+            estado.ocupado = false
+            aplicarDisco(disco)
+            estado.ultima = Bitacora.ultimaDeshacible()
+            analizar()
+            let fallas = r.fallidos > 0 ? " \(r.fallidos) no se pudieron borrar (macOS no me dejó)." : ""
+            if r.cuantos == 0 {
+                estado.mensaje = r.fallidos > 0 ? "No pude borrar nada: macOS no me dejó entrar a la Papelera."
+                    : "No borré nada: ya no estaba en la Papelera o cambió."
+            } else if liberado >= Double(r.bytes) / 2 {
+                estado.mensaje = "Borré para siempre \(Medida.bytes(Double(r.bytes))) de la Papelera. El disco ganó \(Medida.bytes(liberado))." + fallas
+            } else {
+                estado.mensaje = "Borré para siempre \(Medida.bytes(Double(r.bytes))) de la Papelera. Por ahora el disco ganó "
+                    + "\(Medida.bytes(liberado)); macOS puede tardar unos segundos más en reflejarlo." + fallas
+            }
+        }
+    }
+
+    /// Las preguntas antes de borrar para siempre. Por defecto entra solo lo de más de 7 días; lo reciente se
+    /// incluye solo con una confirmación explícita. El panel se oculta mientras se pregunta (si no, se cerraría
+    /// solo al perder el foco) y vuelve después. Nil = cancelado.
+    private func confirmarLiberar(_ p: [Bitacora.Pendiente]) -> [Bitacora.Pendiente]? {
+        guard !p.isEmpty else { return nil }
+        let viejos = p.filter { !$0.reciente }
+        let recientes = p.filter(\.reciente)
+        func peso(_ l: [Bitacora.Pendiente]) -> String { Medida.bytes(Double(l.reduce(0) { $0 + $1.bytes })) }
+        let estabaAbierto = abierto
+        cerrar()
+        NSApp.activate()
+        defer { if estabaAbierto { abrir() } }
+
+        /// Cancelar va primero: es el botón por defecto (Return) y queda a la derecha.
+        func preguntar(_ total: String, _ explicacion: String, _ botones: [String]) -> Int {
+            let alerta = NSAlert()
+            alerta.alertStyle = .warning
+            alerta.messageText = "Se borrarán para siempre \(total). No se podrá deshacer."
+            alerta.informativeText = explicacion
+            for b in ["Cancelar"] + botones { alerta.addButton(withTitle: b) }
+            alerta.buttons.dropFirst().forEach { $0.hasDestructiveAction = true }
+            return alerta.runModal().rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+        }
+        let soloDictado = "Solo lo que Dictado mandó a la Papelera; lo que botaste tú no se toca."
+        if viejos.isEmpty {
+            let r = preguntar(peso(recientes), "Dictado lo mandó a la Papelera hace menos de 7 días: después ya no podrás "
+                              + "devolverlo con Deshacer. " + soloDictado, ["Borrar para siempre"])
+            return r == 1 ? recientes : nil
+        }
+        let extra = recientes.isEmpty ? ""
+            : "\n\nHay \(peso(recientes)) más de los últimos 7 días que todavía puedes devolver con Deshacer; no entran salvo que lo pidas."
+        let botones = recientes.isEmpty ? ["Borrar para siempre"] : ["Borrar para siempre", "Incluir lo reciente…"]
+        switch preguntar(peso(viejos), "Lleva más de 7 días en la Papelera. " + soloDictado + extra, botones) {
+        case 1:
+            return viejos
+        case 2:
+            let r = preguntar(peso(p), "Incluye \(peso(recientes)) que Dictado mandó a la Papelera esta semana: ya no podrás "
+                              + "devolverlo con Deshacer. " + soloDictado, ["Borrar para siempre"])
+            return r == 1 ? p : nil
+        default:
+            return nil
+        }
+    }
+
+    // MARK: iCloud
+
+    /// Quita la copia local de los archivos marcados: siguen en iCloud y se vuelven a bajar al abrirlos.
+    private func quitarDescargas(_ l: Limpiable) {
+        guard !estado.ocupado else { return }
+        estado.ocupado = true
+        estado.mensaje = "Quitando descargas de iCloud…"
+        let items = l.marcados
+        Task { @MainActor in
+            let (r, liberado, disco) = await conMedicion(esperado: { $0.bytes }) { DescargasICloud.quitar(items) }
+            estado.ocupado = false
+            aplicarDisco(disco)
+            analizar()
+            if r.cuantos == 0 {
+                estado.mensaje = "No pude quitar las descargas: puede que una app las esté usando o que iCloud esté sincronizando."
+            } else if liberado >= Double(r.bytes) / 2 {
+                estado.mensaje = "Liberé \(Medida.bytes(liberado)): siguen en iCloud y se descargan al abrirlos."
+            } else {
+                estado.mensaje = "Liberé \(Medida.bytes(Double(r.bytes))): siguen en iCloud y se descargan al abrirlos. "
+                    + "Por ahora el disco refleja \(Medida.bytes(liberado)); macOS tarda unos segundos más."
+            }
+        }
+    }
+
+    // MARK: Espacio real
+
+    /// Corre `trabajo` en la cola de salud entre dos mediciones frescas del disco (sin la caché de 60 s) y devuelve
+    /// lo que el disco ganó de verdad. macOS puede tardar 1 o 2 s en reflejar lo borrado: si va por debajo de lo
+    /// esperado, vuelve a medir (hasta 3 veces). Cuenta el espacio libre estricto, sin lo que macOS liberaría solo.
+    private func conMedicion<T: Sendable>(esperado: @escaping @Sendable (T) -> Int64 = { _ in 0 },
+                                          _ trabajo: @escaping @Sendable () -> T) async -> (T, Double, Medidor.Disco) {
+        let medidor = self.medidor
+        let antes = await enCola { medidor.disco(fresco: true) }
+        let resultado = await enCola(trabajo)
+        let meta = Double(esperado(resultado)) * 0.8
+        var despues = antes
+        for intento in 0..<3 {
+            try? await Task.sleep(for: .milliseconds(intento == 0 ? 800 : 1500))
+            despues = await enCola { medidor.disco(fresco: true) }
+            if meta <= 0 || despues.libre - antes.libre >= meta { break }
+        }
+        return (resultado, max(0, despues.libre - antes.libre), despues)
+    }
+
+    private func enCola<T: Sendable>(_ trabajo: @escaping @Sendable () -> T) async -> T {
+        await withCheckedContinuation { c in cola.async { c.resume(returning: trabajo()) } }
     }
 }
 
@@ -402,8 +606,12 @@ final class Salud {
 
 final class Medidor: @unchecked Sendable {
     struct Proceso: Sendable { let pid: pid_t; let nombre: String; let responsable: pid_t; let cpu: Double; let memoria: Double }
+    /// Disco: `disponible` es lo que macOS de verdad puede usar (incluye lo que puede liberar solo, como
+    /// cachés de iCloud); `libre`, lo libre estricto hoy. La diferencia es "lo que macOS puede liberar solo".
+    struct Disco: Sendable { var disponible = 0.0, libre = 0.0, total = 1.0 }
     struct Muestra: Sendable {
-        var cpu = 0.0, gpu = 0.0, memoriaUsada = 0.0, swap = 0.0, discoLibre = 0.0, discoTotal = 1.0
+        var cpu = 0.0, gpu = 0.0, memoriaUsada = 0.0, swap = 0.0
+        var disco = Disco()
         var presion = 1
         var procesos: [Proceso] = []
     }
@@ -420,7 +628,7 @@ final class Medidor: @unchecked Sendable {
         m.cpu = procesador()
         m.gpu = Self.graficos()
         (m.memoriaUsada, m.swap, m.presion) = Self.memoria()
-        (m.discoLibre, m.discoTotal) = disco()
+        m.disco = disco()
         m.procesos = procesos()
         return m
     }
@@ -489,17 +697,19 @@ final class Medidor: @unchecked Sendable {
         return (usada, Double(swap.xsu_used), Int(presion))
     }
 
-    /// Espacio que macOS de verdad puede usar (incluye lo que puede liberar solo, como cachés de iCloud).
     /// Esta consulta hace que macOS calcule lo que puede liberar solo (cachés purgables): con el disco casi
-    /// lleno le cuesta trabajo, así que se repite como máximo una vez por minuto.
-    private var discoPrevio: (libre: Double, total: Double, cuando: Date)?
+    /// lleno le cuesta trabajo, así que se repite como máximo una vez por minuto. `fresco` se salta esa pausa:
+    /// para medir antes y después de liberar espacio. Solo desde la cola de salud (guarda la última medida).
+    private var discoPrevio: (disco: Disco, cuando: Date)?
 
-    private func disco() -> (Double, Double) {
-        if let p = discoPrevio, Date().timeIntervalSince(p.cuando) < 60 { return (p.libre, p.total) }
-        let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeTotalCapacityKey])
-        let medida = (Double(v?.volumeAvailableCapacityForImportantUsage ?? 0), Double(v?.volumeTotalCapacity ?? 1))
-        discoPrevio = (medida.0, medida.1, Date())
-        return medida
+    func disco(fresco: Bool = false) -> Disco {
+        if !fresco, let p = discoPrevio, Date().timeIntervalSince(p.cuando) < 60 { return p.disco }
+        let claves: Set<URLResourceKey> = [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey, .volumeTotalCapacityKey]
+        let v = try? URL(fileURLWithPath: "/").resourceValues(forKeys: claves)  // URL nueva: sin valores guardados
+        let d = Disco(disponible: Double(v?.volumeAvailableCapacityForImportantUsage ?? 0),
+                      libre: Double(v?.volumeAvailableCapacity ?? 0), total: Double(v?.volumeTotalCapacity ?? 1))
+        discoPrevio = (d, Date())
+        return d
     }
 
     /// Procesos que consumen algo, con su app dueña. El procesador sale de /bin/ps (del sistema, puede ver todos
@@ -597,11 +807,12 @@ enum Escaner {
     }
 
     /// Todo en paralelo: el análisis tarda lo que tarde la carpeta más grande.
-    static func analizar(abiertas: [String: String]) -> [Limpiable] {
+    static func analizar(abiertas: [String: String], icloud: Bool) -> [Limpiable] {
         let tareas: [@Sendable () -> [Limpiable]] = [
             { cacheApps(abiertas) }, { cachesInternas(abiertas) }, { cachesDesarrollo() }, { dependenciasDormidas() },
             { registros() }, { carpetasPersonales() }, { descargasViejas() }, { archivosGrandes() }, { duplicados() },
             { appsGrandes(abiertas) },
+            { icloud ? descargasICloud() : [] },  // función opcional "Quitar descargas de iCloud" (ICloud.swift)
         ]
         let cerrojo = NSLock()
         nonisolated(unsafe) var lista: [Limpiable] = []
@@ -611,7 +822,12 @@ enum Escaner {
             lista.append(contentsOf: parte)
             cerrojo.unlock()
         }
-        return lista.filter { $0.total > 50_000_000 }
+        return ordenar(lista)
+    }
+
+    /// Solo lo que pesa más de 50 MB; primero lo seguro y, dentro de cada grupo, lo más grande.
+    static func ordenar(_ lista: [Limpiable]) -> [Limpiable] {
+        lista.filter { $0.total > 50_000_000 }
             .sorted { ($0.segura ? 0 : 1, -$0.total) < ($1.segura ? 0 : 1, -$1.total) }
     }
 
@@ -983,7 +1199,14 @@ enum Escaner {
 /// Cada limpieza queda anotada (qué se movió y a dónde) en ~/Library/Application Support/Dictado/limpiezas.json,
 /// así "Deshacer" devuelve todo a su lugar aunque hayas cerrado el panel o reiniciado.
 struct RegistroLimpieza: Codable {
-    struct Movimiento: Codable { let original: String; let papelera: String; let bytes: Int64 }
+    struct Movimiento: Codable {
+        let original: String
+        let papelera: String
+        let bytes: Int64
+        /// Número del archivo en el disco (se conserva al moverlo). Confirma que lo que hay en esa ruta de la
+        /// Papelera es lo que mandó Dictado y no algo que botaste después con el mismo nombre. Nil en bitácoras viejas.
+        var identificador: UInt64? = nil
+    }
     let fecha: Date
     let titulo: String
     let movimientos: [Movimiento]
@@ -993,13 +1216,14 @@ struct RegistroLimpieza: Codable {
 enum Bitacora {
     static var archivo: URL { Ajustes.archivoVocabulario.deletingLastPathComponent().appendingPathComponent("limpiezas.json") }
 
-    static func todas() -> [RegistroLimpieza] {
-        guard let datos = try? Data(contentsOf: archivo) else { return [] }
+    /// `destino` solo cambia en las pruebas (una bitácora falsa en /tmp).
+    static func todas(_ destino: URL = archivo) -> [RegistroLimpieza] {
+        guard let datos = try? Data(contentsOf: destino) else { return [] }
         return (try? JSONDecoder().decode([RegistroLimpieza].self, from: datos)) ?? []
     }
 
-    private static func escribir(_ lista: [RegistroLimpieza]) {
-        if let datos = try? JSONEncoder().encode(Array(lista.suffix(50))) { try? datos.write(to: archivo, options: .atomic) }
+    static func escribir(_ lista: [RegistroLimpieza], en destino: URL = archivo) {
+        if let datos = try? JSONEncoder().encode(Array(lista.suffix(50))) { try? datos.write(to: destino, options: .atomic) }
     }
 
     /// Mueve a la Papelera y anota. Devuelve el registro (vacío si nada se pudo mover).
@@ -1008,7 +1232,8 @@ enum Bitacora {
         for item in items where !Escaner.protegido(item.url) {
             var destino: NSURL?
             if (try? FileManager.default.trashItem(at: item.url, resultingItemURL: &destino)) != nil, let d = destino?.path {
-                hechos.append(.init(original: item.url.path, papelera: d, bytes: item.bytes))
+                let id = (try? URL(fileURLWithPath: d).resourceValues(forKeys: [.fileIdentifierKey]))?.fileIdentifier
+                hechos.append(.init(original: item.url.path, papelera: d, bytes: item.bytes, identificador: id))
             }
         }
         let registro = RegistroLimpieza(fecha: Date(), titulo: titulo, movimientos: hechos)
@@ -1026,6 +1251,13 @@ enum Bitacora {
         }
         escribir(todas().filter { $0.fecha != registro.fecha })
         return vueltos
+    }
+
+    /// La última limpieza, si es de esta semana y algo suyo sigue en la Papelera (si no, "Deshacer" no aparece).
+    static func ultimaDeshacible(_ destino: URL = archivo) -> RegistroLimpieza? {
+        guard let r = todas(destino).last, Date().timeIntervalSince(r.fecha) < 7 * 86_400,
+              r.movimientos.contains(where: { FileManager.default.fileExists(atPath: $0.papelera) }) else { return nil }
+        return r
     }
 }
 
