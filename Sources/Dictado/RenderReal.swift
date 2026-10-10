@@ -1,105 +1,16 @@
 import AppKit
 import SwiftUI
 
-// Comparación de las variantes de la isla con el setup real del Mac (solo render, no está en la app).
+// La isla con el setup real del Mac (solo render, no está en la app).
 //
-//   Dictado --foto-real foto.json            mide el Mac (salud, volumen, salida, brillo) y lo agrega a foto.json
-//   Dictado --comparar salida.png diales|mosaicos|luz foto.json
+//   Dictado --foto-real foto.json         mide el Mac (salud, volumen, salida, brillo) y lo agrega a foto.json
+//   Dictado --comparar salida.png halo foto.json
 //
 // foto.json trae lo que la app no puede leer sola desde la línea de comandos:
 //   { "musica": { "titulo", "artista", "duracion", "posicion", "sonando", "caratula": ruta },
-//     "hermes": ruta a un JSON con el formato de Agentes.swift, "reunion": { "titulo", "minutos", "duracion" } }
+//     "agente": { "nombre", "estado": ruta a un JSON con el formato de Agentes.swift },
+//     "reunion": { "titulo", "minutos", "duracion" } }
 // Las sesiones de Claude se leen en vivo de ~/.claude (solo lectura). El fondo es el del escritorio.
-
-/// Datos que pintan las maquetas (Mosaicos, Luz): los de ejemplo o los del setup real.
-@MainActor
-struct DatosMaqueta {
-    var caratula: NSImage
-    var colores: [Color]                 // tres colores vivos de la carátula
-    var cancion = "Weightless"
-    var artista = "Marconi Union"
-    var posicion = 151.0
-    var duracion = 480.0
-    var sonando = true
-    var volumen = 0.62
-    var silencio = false
-    var salida = "AirPods Pro"
-    var salidaSimbolo = "airpodspro"
-    var brillo = 0.81
-    var claude: SesionesClaude
-    var agente: AgentesRemotos.Agente?
-    var reunion: Agenda.Evento?
-    var salud: EstadoSalud
-
-    /// La sesión que te espera o, si ninguna, la última que terminó (para el aviso de Claude).
-    var sesionAviso: SesionesClaude.Sesion? {
-        claude.esperando.first ?? claude.sesiones.first { $0.estado == .lista } ?? claude.sesiones.first
-    }
-
-    static func ejemplo() -> DatosMaqueta {
-        let claude = SesionesClaude(vivo: false)
-        claude.sesiones = [
-            .init(id: "a", pid: 1, nombre: "Rediseño del sitio web", carpeta: "", estado: .esperando, espera: "Necesita tu permiso",
-                  desde: Date().addingTimeInterval(-40), contexto: 318_000, actividad: "swift build"),
-            .init(id: "b", pid: 2, nombre: "Informe trimestral", carpeta: "", estado: .trabajando, espera: "",
-                  desde: Date().addingTimeInterval(-260), contexto: 768_000, actividad: "Editando HeroSection.tsx"),
-        ]
-        var agente = AgentesRemotos.Agente(nombre: "Hermes", estado: .ok, resumen: "10 tareas activas · todo bien")
-        let hoy = Calendar.current.startOfDay(for: Date())
-        agente.tareas = [(3.0, "wiki-nightly-lint"), (3.5, "inbox-process"), (7.0, "finanzas-diario"), (7.03, "airbnb-diario"),
-                         (8.05, "morning-briefing")].map {
-            .init(nombre: $0.1, estado: "ok", ultima: hoy.addingTimeInterval($0.0 * 3600),
-                  proxima: hoy.addingTimeInterval(($0.0 + 24) * 3600), detalle: "")
-        }
-        let ahora = Date()
-        return DatosMaqueta(caratula: caratulaVivaDeMuestra(), colores: [Color(red: 1.0, green: 0.56, blue: 0.30),
-                            Color(red: 1.0, green: 0.40, blue: 0.62), Color(red: 0.62, green: 0.45, blue: 1.0)],
-                            claude: claude, agente: agente,
-                            reunion: .init(id: "r", titulo: "Revisión de contrato", inicio: ahora.addingTimeInterval(252),
-                                           fin: ahora.addingTimeInterval(2952), color: Color(red: 0.36, green: 0.62, blue: 1.0),
-                                           enlace: URL(string: "https://meet.google.com/abc-defg-hij")),
-                            salud: ejemploSalud())
-    }
-
-    static func caratulaVivaDeMuestra() -> NSImage {
-        let img = NSImage(size: NSSize(width: 300, height: 300))
-        img.lockFocus()
-        NSGradient(colors: [NSColor(red: 1.0, green: 0.62, blue: 0.32, alpha: 1), NSColor(red: 1.0, green: 0.38, blue: 0.58, alpha: 1),
-                            NSColor(red: 0.50, green: 0.36, blue: 0.98, alpha: 1)])?
-            .draw(in: NSRect(x: 0, y: 0, width: 300, height: 300), angle: -60)
-        img.unlockFocus()
-        return img
-    }
-
-    /// Tres colores vivos de la carátula: la imagen se reduce a 6×6 y se eligen las celdas más saturadas y
-    /// distintas entre sí; se aclaran un poco para que brillen sobre negro.
-    static func paleta(_ imagen: NSImage) -> [Color] {
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 6, pixelsHigh: 6, bitsPerSample: 8, samplesPerPixel: 4,
-                                         hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 24, bitsPerPixel: 32)
-        else { return [.white] }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        imagen.draw(in: NSRect(x: 0, y: 0, width: 6, height: 6))
-        NSGraphicsContext.restoreGraphicsState()
-        var celdas: [(h: CGFloat, s: CGFloat, b: CGFloat)] = []
-        for x in 0..<6 { for y in 0..<6 {
-            guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
-            var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-            c.getHue(&h, saturation: &s, brightness: &b, alpha: &a)
-            celdas.append((h, s, b))
-        } }
-        celdas.sort { $0.s * $0.b > $1.s * $1.b }
-        var elegidas: [(h: CGFloat, s: CGFloat, b: CGFloat)] = []
-        for c in celdas where elegidas.count < 3 {
-            if elegidas.allSatisfy({ min(abs($0.h - c.h), 1 - abs($0.h - c.h)) > 0.06 }) { elegidas.append(c) }
-        }
-        while elegidas.count < 3, let primera = elegidas.first ?? celdas.first { elegidas.append(primera) }
-        return elegidas.map { Color(hue: $0.h, saturation: min(1, max(0.45, $0.s * 1.15)), brightness: max(0.82, $0.b)) }
-    }
-}
-
-/// Las maquetas leen de aquí; cada hoja lo pone antes de dibujar.
-@MainActor var maqueta: DatosMaqueta = .ejemplo()
 
 // MARK: Foto del setup real
 
@@ -187,8 +98,8 @@ struct SetupReal {
         claude.porHora = uso.porHora
         claude.sesiones = claude.sesiones.map { var s = $0; s.contexto = uso.contexto[s.id] ?? 0; return s }
         let agentes = AgentesRemotos(vivo: false)
-        if let r = foto["hermes"] as? String {
-            agentes.agentes = [AgentesRemotos.consultar(nombre: "Hermes", comando: "cat '\(r)'")]
+        if let a = foto["agente"] as? [String: Any], let r = a["estado"] as? String {
+            agentes.agentes = [AgentesRemotos.consultar(nombre: a["nombre"] as? String ?? "Agente", comando: "cat '\(r)'")]
         }
         let salud = EstadoSalud()
         if let s = foto["salud"] as? [String: Any] {
@@ -220,31 +131,16 @@ struct SetupReal {
                          salida: SalidaAudio(nombre: nombreSalida, integrado: foto["integrado"] as? Bool ?? false),
                          brillo: foto["brillo"] as? Double ?? 0.7, fondo: fondo, notch: notch)
     }
-
-    /// Para las maquetas.
-    var datos: DatosMaqueta {
-        let caratula = musica.caratula ?? DatosMaqueta.caratulaVivaDeMuestra()
-        return DatosMaqueta(caratula: caratula, colores: DatosMaqueta.paleta(caratula), cancion: musica.titulo, artista: musica.artista,
-                            posicion: musica.posicion, duracion: musica.duracion, sonando: musica.sonando,
-                            volumen: volumen, silencio: silencio, salida: salida.nombre, salidaSimbolo: salida.simbolo, brillo: brillo,
-                            claude: claude, agente: agentes.agentes.first, reunion: agenda.eventos.first, salud: salud)
-    }
 }
 
 // MARK: Hoja de comparación
 
-/// Las mismas escenas para cada variante, una debajo de otra (760 pt de ancho): volumen, aviso de Claude,
-/// isla abierta en Agentes, en Agenda y en Mac.
+/// Las escenas una debajo de otra (760 pt de ancho): volumen, aviso de Claude, isla abierta en Agentes, en Agenda y
+/// en Mac.
 @MainActor
 func hojaComparar(_ destino: URL, variante: String, foto: URL) -> Bool {
     let real = SetupReal.cargar(foto)
-    maqueta = real.datos
-    let escenas: [AnyView]
-    switch variante {
-    case "mosaicos": escenas = escenasMosaicos(real)
-    case "luz": escenas = escenasLuz(real)
-    default: escenas = escenasDiales(real)
-    }
+    let escenas = escenasIsla(real)
     let hoja = VStack(spacing: 14) { ForEach(escenas.indices, id: \.self) { escenas[$0] } }
         .padding(14)
         .background(Color(white: 0.08))
@@ -271,7 +167,7 @@ func escenaReal<C: View>(_ real: SetupReal, alto: CGFloat, @ViewBuilder _ isla: 
 }
 
 @MainActor
-private func escenasDiales(_ real: SetupReal) -> [AnyView] {
+private func escenasIsla(_ real: SetupReal) -> [AnyView] {
     func isla(_ ajustar: (EstadoIsla) -> Void, alto: CGFloat) -> AnyView {
         let estado = EstadoIsla()
         estado.notch = real.notch
@@ -285,7 +181,8 @@ private func escenasDiales(_ real: SetupReal) -> [AnyView] {
                 .frame(height: alto, alignment: .top)
         })
     }
-    let aviso = maqueta.sesionAviso
+    let c = real.claude
+    let aviso = c.esperando.first ?? c.sesiones.first { $0.estado == .lista } ?? c.sesiones.first
     return [
         isla({ $0.actividad = .nivel(tipo: .volumen, valor: real.volumen, silencio: real.silencio, salida: real.salida) }, alto: 150),
         isla({ e in

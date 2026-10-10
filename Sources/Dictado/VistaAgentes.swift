@@ -159,7 +159,7 @@ struct DetalleAgente: View {
     }
 }
 
-/// "● CORRIÓ   morning-briefing          8:03 a. m."
+/// "● CORRIÓ   informe-matutino          8:03 a. m."
 struct FilaTarea: View {
     struct Datos: Identifiable {
         let id: String

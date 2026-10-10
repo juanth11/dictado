@@ -85,7 +85,7 @@ func animaciones(_ carpeta: URL) -> Bool {
     func lienzo<C: View>(_ titulo: String, _ detalle: String, tam: CGSize, radio: CGFloat, @ViewBuilder _ contenido: () -> C) -> some View {
         let c = contenido()
         return ZStack(alignment: .top) {
-            Image(nsImage: fondo).resizable().scaledToFill().frame(width: 760, height: 330, alignment: .top).clipped()
+            Image(nsImage: fondo).resizable().scaledToFill().frame(width: 760, height: 290, alignment: .top).clipped()
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)
             ZStack(alignment: .top) {
                 FormaIsla(radio: radio).fill(.black).shadow(color: .black.opacity(0.35), radius: 18, y: 8)
@@ -101,7 +101,7 @@ func animaciones(_ carpeta: URL) -> Bool {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(14)
         }
-        .frame(width: 760, height: 330)
+        .frame(width: 760, height: 290)
     }
 
     let compacta = CGSize(width: notch.width + 2 * FormaIsla.hombro + 92, height: notch.height)
@@ -150,8 +150,9 @@ func animaciones(_ carpeta: URL) -> Bool {
     }
 
     // 3 · Un aviso entra: la isla crece desde el notch con Halo.entrada (un rebote leve) y el aviso se enfoca.
-    let aviso = CGSize(width: notch.width + 2 * FormaIsla.hombro + 280, height: notch.height + 58)
     let sesion = m.claude.sesiones[0]
+    let conAviso = EstadoIsla(); conAviso.notch = notch; conAviso.actividad = .claude(sesion: sesion, necesita: true, duracion: 0)
+    let aviso = conAviso.tamano(alas: false)
     for i in 0..<Int(1.4 * fps) {
         let t = Double(i) / fps
         let p = resorte(t, respuesta: 0.38, amortiguacion: 0.74)
@@ -168,7 +169,8 @@ func animaciones(_ carpeta: URL) -> Bool {
     }
 
     // 4 · El volumen sube con tres toques de tecla: las marcas se encienden, la cifra rueda y la luz crece.
-    let nivel = CGSize(width: notch.width + 2 * FormaIsla.hombro + 300, height: notch.height + 62)
+    let conNivel = EstadoIsla(); conNivel.notch = notch; conNivel.actividad = .nivel(tipo: .volumen, valor: 0.5, silencio: false)
+    let nivel = conNivel.tamano(alas: false)
     let pasos: [Double] = [0.38, 0.5, 0.62, 0.74]
     for i in 0..<Int(1.5 * fps) {
         let t = Double(i) / fps
@@ -211,7 +213,7 @@ func animaciones(_ carpeta: URL) -> Bool {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             .padding(24)
         }
-        .frame(width: 760, height: 330))
+        .frame(width: 760, height: 290))
     }
     return n > 0
 }
