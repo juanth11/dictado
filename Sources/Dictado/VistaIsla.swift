@@ -249,7 +249,11 @@ private struct BarraNivel: View {
 
     var body: some View {
         if tipo == .volumen {
-            VolumenIsla(estado: estado, valor: valor, silencio: silencio, salida: salida)
+            switch EstiloVolumen.actual {
+            case .niebla: VolumenNiebla(estado: estado, valor: valor, silencio: silencio, salida: salida)
+            case .calor: VolumenCalor(estado: estado, valor: valor, silencio: silencio, salida: salida)
+            case .termostato: VolumenIsla(estado: estado, valor: valor, silencio: silencio, salida: salida)
+            }
         } else {
             cuna
         }
@@ -412,6 +416,197 @@ private struct VolumenIsla: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 5)  // el arco y la cifra no tocan el borde; la perilla nunca queda bajo el notch
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+    }
+}
+
+/// Cómo se ve el volumen en la isla. Se elige con `defaults write app.dictado estiloVolumen niebla` (termostato,
+/// niebla o calor); en los renders, con la variable DICTADO_VOLUMEN.
+enum EstiloVolumen: String {
+    case termostato, niebla, calor
+
+    static var actual: EstiloVolumen {
+        let valor = ProcessInfo.processInfo.environment["DICTADO_VOLUMEN"]
+            ?? UserDefaults(suiteName: "app.dictado")?.string(forKey: "estiloVolumen")
+        return valor.flatMap(EstiloVolumen.init(rawValue:)) ?? .termostato
+    }
+}
+
+/// Alturas fijas de una onda de sonido (siempre las mismas: nada se anima solo), entre 0,25 y 1.
+private let ondaVolumen: [Double] = (0..<48).map { i in
+    let x = Double(i)
+    return 0.25 + 0.75 * abs(sin(x * 0.61) * 0.55 + sin(x * 1.37 + 1.1) * 0.3 + sin(x * 0.23 + 0.4) * 0.15)
+}
+
+/// Volumen como niebla de luz: hasta el nivel, la onda del sonido es una masa difuminada de azul a violeta y rosa;
+/// una línea punteada con un punto marca el nivel y encima va la cifra; después, rayitas finas y tenues con la misma
+/// onda (lo que falta). A la izquierda, qué es y a dónde va el sonido.
+private struct VolumenNiebla: View {
+    let estado: EstadoIsla
+    let valor: Double
+    let silencio: Bool
+    var salida: SalidaAudio?
+
+    private static let colores = [Color(red: 0.35, green: 0.62, blue: 1.0), Color(red: 0.62, green: 0.48, blue: 1.0),
+                                  Color(red: 1.0, green: 0.45, blue: 0.62)]
+    private static let marca = Color(red: 1.0, green: 0.62, blue: 0.45)
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        VStack(spacing: 0) {
+            Color.clear.frame(height: estado.notch.height)
+            HStack(spacing: 18) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Rotulo(silencio ? "Silencio" : "Volumen", color: silencio ? Color(red: 1, green: 0.46, blue: 0.44) : Halo.texto3)
+                    if let salida {
+                        Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
+                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
+                            .labelStyle(EtiquetaJunta()).lineLimit(1)
+                    }
+                }
+                .frame(width: 104, alignment: .leading)
+                GeometryReader { g in
+                    let w = g.size.width, h = g.size.height
+                    let base = h - 2, techo: CGFloat = 20  // arriba queda la cifra
+                    let n = ondaVolumen.count
+                    let paso = w / CGFloat(n - 1)
+                    let x = w * v
+                    ZStack(alignment: .topLeading) {
+                        if !silencio && v > 0 {
+                            Path { p in  // la masa de la onda hasta el nivel: colinas suaves (una cada 4 muestras)
+                                let puntos = stride(from: 0, to: n, by: 4).map { i in
+                                    CGPoint(x: CGFloat(i) * paso, y: base - (base - techo) * CGFloat(0.3 + 0.7 * ondaVolumen[i]))
+                                } + [CGPoint(x: w, y: base - (base - techo) * 0.5)]
+                                p.move(to: CGPoint(x: 0, y: base))
+                                p.addLine(to: puntos[0])
+                                for k in 1..<puntos.count {
+                                    let a = puntos[k - 1], b = puntos[k]
+                                    let medio = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+                                    p.addQuadCurve(to: medio, control: a)
+                                    if k == puntos.count - 1 { p.addQuadCurve(to: b, control: medio) }
+                                }
+                                p.addLine(to: CGPoint(x: w, y: base))
+                                p.closeSubpath()
+                            }
+                            .fill(LinearGradient(colors: Self.colores, startPoint: .leading, endPoint: .trailing))
+                            .mask(alignment: .leading) { Rectangle().frame(width: x) }
+                            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.55),
+                                                         .init(color: .black.opacity(0.25), location: 1)], startPoint: .top, endPoint: .bottom))
+                            .blur(radius: 5)
+                        }
+                        ForEach(0..<n, id: \.self) { i in  // lo que falta: rayitas finas
+                            let xi = CGFloat(i) * paso
+                            if xi > x + 3 || silencio {
+                                let alto = (base - techo) * CGFloat(ondaVolumen[i])
+                                Rectangle().fill((silencio ? Color.white : Self.colores[2]).opacity(silencio ? 0.18 : 0.45))
+                                    .frame(width: 0.8, height: alto)
+                                    .position(x: xi, y: base - alto / 2)
+                            }
+                        }
+                        Path { p in p.move(to: CGPoint(x: x, y: techo - 4)); p.addLine(to: CGPoint(x: x, y: base)) }
+                            .stroke(silencio ? Color.white.opacity(0.35) : Self.marca, style: StrokeStyle(lineWidth: 1, dash: [1.5, 2]))
+                        Circle().fill(silencio ? Color.white.opacity(0.4) : Self.marca).frame(width: 5, height: 5)
+                            .shadow(color: silencio ? .clear : Self.marca, radius: 3)
+                            .position(x: x, y: techo - 4)
+                        Text(silencio ? "Mudo" : "\(Int((v * 100).rounded()))%")
+                            .font(.system(size: 14, weight: .light)).monospacedDigit()
+                            .foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
+                            .contentTransition(.numericText(value: v))
+                            .fixedSize()
+                            .position(x: min(max(x, 18), w - 18), y: 6)
+                    }
+                }
+                .frame(height: 50)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 4)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+    }
+}
+
+/// Volumen como calor y frío: una línea fina con topes en los extremos; desde la izquierda hasta el nivel, un brillo
+/// cálido (naranja a amarillo, con el centro blanco en el nivel) y después un brillo frío azul que se apaga. Arriba,
+/// "VOLUMEN 62" con la cifra en amarillo y el parlante; abajo, los extremos de la escala.
+private struct VolumenCalor: View {
+    let estado: EstadoIsla
+    let valor: Double
+    let silencio: Bool
+    var salida: SalidaAudio?
+
+    private static let amarillo = Color(red: 1.0, green: 0.82, blue: 0.25)
+    private static let naranja = Color(red: 1.0, green: 0.45, blue: 0.12)
+    private static let azul = Color(red: 0.35, green: 0.72, blue: 1.0)
+    private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        VStack(spacing: 0) {
+            Color.clear.frame(height: estado.notch.height)
+            VStack(spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(silencio ? "SILENCIO" : "VOLUMEN").font(.system(size: 13, weight: .heavy))
+                            .foregroundStyle(silencio ? Self.rojoMudo : .white)
+                        if !silencio {
+                            Text("\(Int((v * 100).rounded()))").font(.system(size: 13, weight: .heavy)).monospacedDigit()
+                                .foregroundStyle(Self.amarillo)
+                                .contentTransition(.numericText(value: v))
+                        }
+                    }
+                    Spacer()
+                    if let salida {
+                        Text(salida.nombre).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Halo.texto3).lineLimit(1)
+                    }
+                    Image(systemName: silencio ? "speaker.slash.fill" : "speaker.wave.3.fill", variableValue: max(v, 0.01))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(silencio ? Self.rojoMudo : Self.amarillo)
+                }
+                GeometryReader { g in
+                    let w = g.size.width, medio = g.size.height / 2
+                    let x = w * v
+                    ZStack(alignment: .topLeading) {
+                        if !silencio {
+                            Ellipse()  // frío: lo que falta
+                                .fill(LinearGradient(colors: [Self.azul, Self.azul.opacity(0.0)], startPoint: .leading, endPoint: .trailing))
+                                .frame(width: max(30, (w - x) * 1.1), height: 18)
+                                .position(x: x + (w - x) / 2, y: medio)
+                                .blur(radius: 7).opacity(0.85)
+                            Ellipse()  // calor: hasta el nivel
+                                .fill(LinearGradient(colors: [Self.naranja.opacity(0.0), Self.naranja, Self.amarillo],
+                                                     startPoint: .leading, endPoint: .trailing))
+                                .frame(width: max(30, x * 1.1), height: 20)
+                                .position(x: x / 2, y: medio)
+                                .blur(radius: 6)
+                            Ellipse().fill(.white)  // el centro blanco en el nivel
+                                .frame(width: 22, height: 12)
+                                .position(x: x, y: medio)
+                                .blur(radius: 4.5)
+                        }
+                        Path { p in  // la línea con sus topes
+                            p.move(to: CGPoint(x: 0, y: medio)); p.addLine(to: CGPoint(x: w, y: medio))
+                            p.move(to: CGPoint(x: 0, y: medio - 4)); p.addLine(to: CGPoint(x: 0, y: medio + 4))
+                            p.move(to: CGPoint(x: w, y: medio - 4)); p.addLine(to: CGPoint(x: w, y: medio + 4))
+                        }
+                        .stroke(.white.opacity(silencio ? 0.25 : 0.55), lineWidth: 0.8)
+                        if silencio {
+                            Capsule().fill(.white.opacity(0.35)).frame(width: 1.2, height: 9).position(x: x, y: medio)
+                        }
+                    }
+                }
+                .frame(height: 18)
+                HStack {
+                    Text("0"); Spacer(); Text("100")
+                }
+                .font(.system(size: 10.5, weight: .semibold)).foregroundStyle(Halo.texto3)
+            }
+            .padding(.horizontal, 26)
+            .padding(.bottom, 5)
             .frame(maxHeight: .infinity, alignment: .bottom)
         }
         .animation(Halo.cambio, value: valor)

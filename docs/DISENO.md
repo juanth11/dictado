@@ -54,6 +54,10 @@ Cada tono tiene `base` y `claro`. Las marcas, el líquido y la luz van del uno a
 | `Cuna` | Rayitas que suben de izquierda a derecha sobre una cuadrícula tenue, encendidas hasta el nivel, con la luz debajo y un marcador blanco | Brillo |
 | `ArcoTubo` | Arco de termostato: un tubo con volumen (sombra abajo, brillo arriba) que se enciende de azul a violeta, naranja y rojo hasta el nivel, con una perilla blanca que brilla y la cifra con relieve en el centro | Volumen |
 | `BotonVidrio` | Botón redondo de vidrio oscuro con relieve; con tinte, brilla de ese color (rojo en silencio) | Volumen |
+| `VolumenNiebla` | La onda del sonido como niebla de luz hasta el nivel, línea punteada con la cifra encima y rayitas tenues después | Volumen (estilo `niebla`) |
+| `VolumenCalor` | Línea fina con topes: brillo cálido hasta el nivel (centro blanco) y frío después; "VOLUMEN 62" arriba, 0 y 100 abajo | Volumen (estilo `calor`) |
+
+El volumen tiene tres estilos: `termostato` (el de siempre), `niebla` y `calor`. Se elige con `defaults write app.dictado estiloVolumen niebla` y cambia al instante, sin reiniciar.
 | `Regla` | Las mismas marcas en línea | Niveles y medidas pequeñas |
 | `Liquido` | Cápsula de progreso que brilla, con reflejo e ícono o texto | El día de un agente, espacio liberado |
 | `Cifra`, `NumeroFino` | Cifra con su unidad en versalitas | Todo dato principal |
