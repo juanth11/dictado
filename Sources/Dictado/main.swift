@@ -10,6 +10,22 @@ if argumentos.count > 2, argumentos[1] == "--vista-halo" {
     let ok = MainActor.assumeIsolated { hojaHalo(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)
 }
+if argumentos.count > 1, argumentos[1] == "--abrir-centro" {
+    pedirAbrirCentro()
+    exit(0)
+}
+if argumentos.count > 2, argumentos[1] == "--vista-centro2" {
+    let ok = MainActor.assumeIsolated { hojaCentro2(URL(fileURLWithPath: argumentos[2]), escena: argumentos.count > 3 ? argumentos[3] : nil) }
+    exit(ok ? 0 : 1)
+}
+if argumentos.count > 2, argumentos[1] == "--vista-centro-real" {
+    let ok = MainActor.assumeIsolated { hojaCentroReal(URL(fileURLWithPath: argumentos[2]), escena: argumentos.count > 3 ? argumentos[3] : nil) }
+    exit(ok ? 0 : 1)
+}
+if argumentos.count > 2, argumentos[1] == "--probar-ventana-centro" {
+    let ok = MainActor.assumeIsolated { probarVentanaCentro(URL(fileURLWithPath: argumentos[2]), escena: argumentos.count > 3 ? argumentos[3] : nil) }
+    exit(ok ? 0 : 1)
+}
 if argumentos.count > 2, argumentos[1] == "--vista-isla" {
     let ok = MainActor.assumeIsolated { hojaIsla(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)

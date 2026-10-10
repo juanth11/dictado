@@ -41,6 +41,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var pulidor: (@MainActor (String) async -> String)?
     private let menuFunciones = NSMenu()
     private let itemSalud = NSMenuItem(title: "Salud del Mac…", action: #selector(abrirSalud), keyEquivalent: "")
+    private let itemCentro = NSMenuItem(title: "Centro de mando…", action: #selector(abrirCentro), keyEquivalent: "")
+    /// La ventana del centro de mando (CentroVentana.swift): se crea al pedirla por primera vez.
+    private var centro: Centro?
     private var isla: Isla?
     private var diagnostico: Timer?
     private var ultimoEstado = ""
@@ -62,6 +65,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             self?.avisar(texto, icono: icono, nota: nota, segundos: texto.isEmpty ? 1.6 : 2.6)
         }
         salud = Salud()
+        DistributedNotificationCenter.default().addObserver(forName: .abrirCentro, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.abrirCentro() }
+        }
         salud.alAlertar = { [weak self] titulo, detalle, gravedad in
             self?.isla?.mostrar(.salud(titulo: titulo, detalle: detalle, grave: gravedad == .mal), segundos: 8)
         }
@@ -202,6 +208,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func abrirPortapapeles() { portapapeles.abrir() }
     @objc private func abrirSalud() { salud.abrir() }
+    @objc private func abrirCentro() {
+        if centro == nil { centro = Centro(claude: isla?.claude) }
+        centro?.abrir()
+    }
 
     private func crearIsla() {
         isla = Isla(hud: hud.estado, niveles: ajustes.niveles, salud: salud)
@@ -400,6 +410,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(itemCaptura)
         itemSalud.target = self
         menu.addItem(itemSalud)
+        itemCentro.target = self
+        menu.addItem(itemCentro)
         itemIsla.target = self
         itemIsla.state = ajustes.isla ? .on : .off
         menu.addItem(itemIsla)
