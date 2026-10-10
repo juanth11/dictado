@@ -271,7 +271,7 @@ struct NumeroPuntos: View {
     }
 }
 
-/// Etiqueta pequeña en mayúsculas y monoespaciada ("VOLUMEN", "EMPIEZA EN").
+/// Etiqueta pequeña en mayúsculas con espaciado ("VOLUMEN", "EMPIEZA EN").
 struct Rotulo: View {
     let texto: String
     var color: Color = .white.opacity(0.45)
@@ -283,8 +283,8 @@ struct Rotulo: View {
 
     var body: some View {
         Text(texto.uppercased())
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .tracking(1.2)
+            .font(.system(size: 9, weight: .semibold))
+            .tracking(1.0)
             .foregroundStyle(color)
             .lineLimit(1)
     }

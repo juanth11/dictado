@@ -21,7 +21,7 @@ struct VistaPortapapeles: View {
     var body: some View {
         let lista = Portapapeles.filtrar(historial.recortes, estado)
         let elegidos = Portapapeles.elegidos(lista, estado, seleccionado)
-        let tono = elegidos.first.map { Tono.de($0, historial) } ?? Tono.texto
+        let tono = elegidos.first.map { TonoRecorte.de($0, historial) } ?? TonoRecorte.texto
         VStack(spacing: 14) {
             cabecera
             HStack(alignment: .top, spacing: 14) {
@@ -88,7 +88,7 @@ struct VistaPortapapeles: View {
 // MARK: - Color y luz
 
 /// Color de cada tipo de recorte (como las luces de un dial): se usa en los puntos, las marcas y los resplandores.
-enum Tono {
+enum TonoRecorte {
     static let texto = Color(red: 0.50, green: 0.37, blue: 1.00)    // violeta
     static let enlace = Color(red: 0.14, green: 0.52, blue: 1.00)   // azul
     static let imagen = Color(red: 0.98, green: 0.28, blue: 0.42)   // rosa rojizo
@@ -180,7 +180,7 @@ enum Tono {
 }
 
 /// Resplandor radial difuso: un círculo de luz que se desvanece hacia los bordes.
-private struct Halo: View {
+private struct HaloRecorte: View {
     let color: Color
     var lado: CGFloat
     var intensidad: Double = 0.5
@@ -207,7 +207,7 @@ private struct LuzPanel: View {
     var body: some View {
         Color.clear
             .overlay {
-                Halo(color: tono, lado: 560, intensidad: 0.16).offset(x: 120, y: 260)
+                HaloRecorte(color: tono, lado: 560, intensidad: 0.16).offset(x: 120, y: 260)
             }
             .clipShape(RoundedRectangle(cornerRadius: 30, style: .continuous))
             .animation(.easeOut(duration: 0.35), value: tono)
@@ -238,7 +238,7 @@ private struct PestanasTipo: View {
             ForEach(EstadoPanel.Filtro.allCases, id: \.self) { filtro in
                 let activa = filtro == valor
                 HStack(spacing: 6) {
-                    if let color = Tono.de(filtro) { Punto(color: color, lado: 6) }
+                    if let color = TonoRecorte.de(filtro) { Punto(color: color, lado: 6) }
                     Text(filtro.rawValue)
                         .font(.system(size: 12, weight: .medium))
                         .lineLimit(1)
@@ -269,7 +269,7 @@ private struct Contador: View {
     var body: some View {
         let partes = Parte.de(lista)
         HStack(spacing: 12) {
-            Dial(numero: lista.count, partes: partes, lado: 54)
+            DialRecorte(numero: lista.count, partes: partes, lado: 54)
             VStack(alignment: .leading, spacing: 3) {
                 Text(nombre)
                     .font(.system(size: 15, weight: .medium))
@@ -333,7 +333,7 @@ private struct Parte: Identifiable {
     let tipo: Recorte.Tipo
     let cuenta: Int
     var id: Recorte.Tipo { tipo }
-    var color: Color { Tono.de(tipo) }
+    var color: Color { TonoRecorte.de(tipo) }
 
     static func de(_ rs: [Recorte]) -> [Parte] {
         let conteo = Dictionary(grouping: rs, by: \.tipo).mapValues(\.count)
@@ -343,7 +343,7 @@ private struct Parte: Identifiable {
 
 /// Dial: círculo negro con el número en trazo fino, un anillo de marcas finas (cada tramo con el color de su tipo)
 /// y, detrás, un resplandor de cada color hacia el lado donde están sus marcas.
-private struct Dial: View {
+private struct DialRecorte: View {
     let numero: Int
     let partes: [Parte]
     var lado: CGFloat = 54
@@ -355,9 +355,9 @@ private struct Dial: View {
             acc.append((p, desde, desde + Double(p.cuenta) / total))
         }
         ZStack {
-            Marcas(desde: 0, hasta: 1).stroke(Diseno.tinta.opacity(0.12), style: StrokeStyle(lineWidth: 1, lineCap: .round))
+            MarcasRecorte(desde: 0, hasta: 1).stroke(Diseno.tinta.opacity(0.12), style: StrokeStyle(lineWidth: 1, lineCap: .round))
             ForEach(tramos, id: \.parte.id) { t in
-                Marcas(desde: t.desde, hasta: t.hasta)
+                MarcasRecorte(desde: t.desde, hasta: t.hasta)
                     .stroke(t.parte.color, style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
             }
             Circle()
@@ -378,7 +378,7 @@ private struct Dial: View {
             ZStack {
                 ForEach(tramos, id: \.parte.id) { t in
                     let medio = CGFloat((t.desde + t.hasta) / 2 * 2 * .pi - .pi / 2)
-                    Halo(color: t.parte.color, lado: lado * 1.5, intensidad: 0.42)
+                    HaloRecorte(color: t.parte.color, lado: lado * 1.5, intensidad: 0.42)
                         .offset(x: cos(medio) * lado * 0.22, y: sin(medio) * lado * 0.22)
                 }
             }
@@ -388,7 +388,7 @@ private struct Dial: View {
 }
 
 /// Marcas finas alrededor de un círculo, solo en el tramo [desde, hasta) de la vuelta (empieza arriba, sentido horario).
-private struct Marcas: Shape {
+private struct MarcasRecorte: Shape {
     var desde: Double
     var hasta: Double
     var total = 48
@@ -511,7 +511,7 @@ private struct Fila: View {
 
     var body: some View {
         let forma = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        let tono = Tono.de(recorte, historial)
+        let tono = TonoRecorte.de(recorte, historial)
         HStack(spacing: 11) {
             Miniatura(recorte: recorte, historial: historial, lado: 34)
             VStack(alignment: .leading, spacing: 2) {
@@ -548,14 +548,14 @@ private struct Fila: View {
             if cursor {
                 // Tarjeta blanca con el color del recorte encendido detrás de su miniatura.
                 forma.fill(Color.white)
-                    .overlay(alignment: .leading) { Halo(color: tono, lado: 150, intensidad: 0.45).offset(x: -50) }
+                    .overlay(alignment: .leading) { HaloRecorte(color: tono, lado: 150, intensidad: 0.45).offset(x: -50) }
                     .clipShape(forma)
                     .overlay(forma.strokeBorder(.white, lineWidth: 1))
                     .shadow(color: .black.opacity(0.10), radius: 10, y: 5)
                     .shadow(color: .black.opacity(0.05), radius: 1, y: 1)
             } else if marcado {
                 forma.fill(Color.white.opacity(0.55))
-                    .overlay(alignment: .leading) { Halo(color: tono, lado: 120, intensidad: 0.18).offset(x: -40) }
+                    .overlay(alignment: .leading) { HaloRecorte(color: tono, lado: 120, intensidad: 0.18).offset(x: -40) }
                     .clipShape(forma)
             }
         }
@@ -596,7 +596,7 @@ private struct Miniatura: View {
             } else {
                 Image(systemName: recorte.simbolo)
                     .font(.system(size: lado * 0.38, weight: .medium))
-                    .foregroundStyle(Tono.de(recorte.tipo))
+                    .foregroundStyle(TonoRecorte.de(recorte.tipo))
                     .frame(width: lado, height: lado)
                     .background(Color.white.opacity(0.75))
             }
@@ -663,7 +663,7 @@ private struct RejillaImagenes: View {
 
         var body: some View {
             let forma = RoundedRectangle(cornerRadius: 16, style: .continuous)
-            let tono = Tono.de(recorte, historial)
+            let tono = TonoRecorte.de(recorte, historial)
             VStack(alignment: .leading, spacing: 6) {
                 ZStack(alignment: .topTrailing) {
                     Group {
@@ -740,9 +740,9 @@ private struct TarjetaPrevia: View {
                 Color.clear
                     .overlay(alignment: .bottomLeading) {
                         ZStack {
-                            Halo(color: elegidos.first.map { Tono.par($0.tipo) } ?? Tono.archivo, lado: 400, intensidad: 0.42)
+                            HaloRecorte(color: elegidos.first.map { TonoRecorte.par($0.tipo) } ?? TonoRecorte.archivo, lado: 400, intensidad: 0.42)
                                 .offset(x: 210, y: 50)
-                            Halo(color: tono, lado: 440, intensidad: 0.70)
+                            HaloRecorte(color: tono, lado: 440, intensidad: 0.70)
                         }
                         .frame(width: 440, height: 440)
                         .offset(x: -130, y: 180)
@@ -762,7 +762,7 @@ private struct TarjetaPrevia: View {
                 if let icono = Miniatura.icono(r.appID) {
                     Image(nsImage: icono).resizable().frame(width: 30, height: 30)
                 } else {
-                    Image(systemName: r.simbolo).font(.system(size: 13, weight: .medium)).foregroundStyle(Tono.de(r.tipo))
+                    Image(systemName: r.simbolo).font(.system(size: 13, weight: .medium)).foregroundStyle(TonoRecorte.de(r.tipo))
                         .frame(width: 30, height: 30)
                         .background(Circle().fill(.white))
                 }
@@ -775,7 +775,7 @@ private struct TarjetaPrevia: View {
                 }
                 .lineLimit(1)
                 HStack(spacing: 6) {
-                    Punto(color: Tono.de(r.tipo), lado: 6)
+                    Punto(color: TonoRecorte.de(r.tipo), lado: 6)
                     Text(Formato.etiqueta(r))
                         .font(.system(size: 9.5, weight: .medium, design: .monospaced))
                         .tracking(1.2)
@@ -933,7 +933,7 @@ private struct Datos: View {
 
     var body: some View {
         let datos = Formato.datos(recorte)
-        let paleta = recorte.tipo == .imagen ? Tono.paleta(recorte, historial) : []
+        let paleta = recorte.tipo == .imagen ? TonoRecorte.paleta(recorte, historial) : []
         if !datos.isEmpty || !paleta.isEmpty {
             HStack(alignment: .bottom, spacing: 26) {
                 ForEach(datos, id: \.nombre) { d in Dato(valor: d.valor, nombre: d.nombre) }
@@ -946,7 +946,7 @@ private struct Datos: View {
                                     .frame(width: 22, height: 22)
                                     .overlay(Circle().strokeBorder(.white, lineWidth: 1.5))
                                     .shadow(color: Color(nsColor: c).opacity(0.5), radius: 4, y: 2)
-                                    .help(Tono.hex(c))
+                                    .help(TonoRecorte.hex(c))
                             }
                         }
                         Text("paleta").font(.system(size: 10.5)).foregroundStyle(Diseno.tintaSuave)
@@ -972,7 +972,7 @@ private struct Contenido: View {
                 VStack(alignment: .leading, spacing: 14) {
                     if let color = Formato.colorHex(r.texto) {
                         ZStack {
-                            Halo(color: color, lado: 190, intensidad: 0.55)
+                            HaloRecorte(color: color, lado: 190, intensidad: 0.55)
                             Circle().fill(color).frame(width: 84, height: 84)
                                 .overlay(Circle().strokeBorder(.white, lineWidth: 3))
                                 .shadow(color: color.opacity(0.5), radius: 12, y: 6)
@@ -1062,7 +1062,7 @@ private struct Contenido: View {
                     .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(.white, lineWidth: 2))
                     .shadow(color: tono.opacity(0.45), radius: 18, y: 10)
                     .shadow(color: .black.opacity(0.12), radius: 3, y: 2)
-                    .background { Halo(color: tono, lado: 420, intensidad: 0.42) }
+                    .background { HaloRecorte(color: tono, lado: 420, intensidad: 0.42) }
                     .padding(.horizontal, 22)
                     .padding(.vertical, 16)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1071,7 +1071,7 @@ private struct Contenido: View {
             let rutas = r.texto.split(separator: "\n").map(String.init)
             VStack(alignment: .leading, spacing: 10) {
                 ZStack {
-                    Halo(color: tono, lado: 200, intensidad: 0.45)
+                    HaloRecorte(color: tono, lado: 200, intensidad: 0.45)
                     Image(nsImage: NSWorkspace.shared.icon(forFile: rutas.first ?? ""))
                         .resizable().frame(width: 76, height: 76)
                         .shadow(color: .black.opacity(0.15), radius: 6, y: 4)
@@ -1146,7 +1146,7 @@ private struct Moodboard: View {
             if !imagenes.isEmpty {
                 ZStack {
                     ForEach(Array(imagenes.prefix(4).enumerated()), id: \.offset) { i, r in
-                        Halo(color: Tono.de(r, historial), lado: 260, intensidad: 0.30)
+                        HaloRecorte(color: TonoRecorte.de(r, historial), lado: 260, intensidad: 0.30)
                             .offset(x: Double(i) * 34 - 50, y: Double(i % 2) * 10 + 10)
                     }
                     ForEach(Array(imagenes.prefix(4).enumerated()), id: \.offset) { i, r in
@@ -1160,7 +1160,7 @@ private struct Moodboard: View {
                         .frame(width: 210, height: 140)
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.white, lineWidth: 3))
-                        .shadow(color: Tono.de(r, historial).opacity(0.35), radius: 14, y: 8)
+                        .shadow(color: TonoRecorte.de(r, historial).opacity(0.35), radius: 14, y: 8)
                         .shadow(color: .black.opacity(0.14), radius: 4, y: 2)
                         .rotationEffect(.degrees(giros[i % giros.count]))
                         .offset(x: Double(i) * 34 - 50, y: Double(i % 2) * 10)
@@ -1172,7 +1172,7 @@ private struct Moodboard: View {
             VStack(alignment: .leading, spacing: 7) {
                 ForEach(otros.prefix(5)) { r in
                     HStack(spacing: 8) {
-                        Punto(color: Tono.de(r.tipo), lado: 6)
+                        Punto(color: TonoRecorte.de(r.tipo), lado: 6)
                         Text(r.titulo).font(.system(size: 13)).foregroundStyle(Diseno.tinta).lineLimit(1)
                     }
                 }

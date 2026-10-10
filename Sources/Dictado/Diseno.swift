@@ -1,41 +1,29 @@
 import AppKit
 import SwiftUI
 
-/// Lenguaje visual de los paneles: vidrio claro tipo visionOS,
-/// pestañas en píldora con la activa en blanco sólido, botones circulares de vidrio, esquinas amplias,
-/// etiquetas en mayúsculas monoespaciadas, sin líneas de color.
+/// Piezas comunes de los paneles en el lenguaje Halo (ver Halo.swift): vidrio oscuro, pestañas en píldora con la
+/// activa en vidrio blanco translúcido, botones circulares de vidrio, el botón principal blanco sólido, rótulos en
+/// mayúsculas pequeñas con espaciado.
 enum Diseno {
-    static let tinta = Color(red: 0.10, green: 0.10, blue: 0.12)
-    static let tintaSuave = Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.55)
-    static let tintaTenue = Color(red: 0.10, green: 0.10, blue: 0.12).opacity(0.35)
-    static let vidrio = Color.white.opacity(0.42)
-    static let borde = Color.white.opacity(0.72)
-    static let sombra = Color.black.opacity(0.12)
+    static let tinta = Halo.texto
+    static let tintaSuave = Halo.texto2
+    static let tintaTenue = Halo.texto3
+    static let vidrio = Color.white.opacity(0.08)
+    static let borde = Color.white.opacity(0.12)
+    static let sombra = Color.black.opacity(0.4)
 }
 
-/// Panel flotante de vidrio claro: Liquid Glass real en la app; en los renders, una simulación
-/// (el render pone el fondo desenfocado detrás con `lienzoConVidrio`).
+/// Panel flotante: el vidrio oscuro de Halo (ver PanelHalo).
 struct PanelVidrio: ViewModifier {
     let radio: CGFloat
     let simulado: Bool
 
     func body(content: Content) -> some View {
-        let forma = RoundedRectangle(cornerRadius: radio, style: .continuous)
-        Group {
-            if simulado {
-                content.background(forma.fill(Color.white.opacity(0.40)))
-            } else {
-                content.glassEffect(.regular.tint(Color.white.opacity(0.22)), in: forma)
-            }
-        }
-        .overlay(forma.strokeBorder(
-            LinearGradient(colors: [.white.opacity(0.95), .white.opacity(0.25)], startPoint: .top, endPoint: .bottom),
-            lineWidth: 1))
-        .environment(\.colorScheme, .light)
+        content.modifier(PanelHalo(radio: radio, simulado: simulado))
     }
 }
 
-/// Pestañas en píldora: la activa en blanco sólido con sombra suave.
+/// Pestañas en píldora: la activa en vidrio blanco translúcido.
 struct Segmentado<Valor: Hashable>: View {
     let opciones: [(valor: Valor, titulo: String)]
     @Binding var valor: Valor
@@ -52,19 +40,21 @@ struct Segmentado<Valor: Hashable>: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background {
-                        if activa { Capsule().fill(.white).shadow(color: Diseno.sombra, radius: 6, y: 2) }
+                        if activa {
+                            Capsule().fill(.white.opacity(0.14)).overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                        }
                     }
                     .contentShape(Capsule())
                     .onTapGesture { withAnimation(.spring(duration: 0.3)) { valor = opcion.valor } }
             }
         }
         .padding(3)
-        .background(Capsule().fill(Color.white.opacity(0.32)))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.6), lineWidth: 0.8))
+        .background(Capsule().fill(Color.white.opacity(0.05)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.08), lineWidth: 1))
     }
 }
 
-/// Botón circular de vidrio; el activo, blanco sólido.
+/// Botón circular de vidrio; el activo, blanco sólido con el ícono negro.
 struct BotonCirculo: View {
     let simbolo: String
     var activo = false
@@ -76,7 +66,7 @@ struct BotonCirculo: View {
         Button(action: accion) {
             Image(systemName: simbolo)
                 .font(.system(size: lado * 0.38, weight: .medium))
-                .foregroundStyle(activo ? Diseno.tinta : Diseno.tinta.opacity(0.72))
+                .foregroundStyle(activo ? Color.black : Diseno.tinta.opacity(0.8))
                 .frame(width: lado, height: lado)
                 .background(Circle().fill(activo ? Color.white : Diseno.vidrio))
                 .overlay(Circle().strokeBorder(Diseno.borde, lineWidth: 0.8))
@@ -88,7 +78,7 @@ struct BotonCirculo: View {
     }
 }
 
-/// Botón en píldora: el primario blanco sólido; los demás, vidrio.
+/// Botón en píldora: el primario blanco sólido con letra negra (el de Apple); los demás, vidrio.
 struct BotonPildora: View {
     let titulo: String
     var teclas: String?
@@ -102,10 +92,10 @@ struct BotonPildora: View {
                 if let simbolo { Image(systemName: simbolo).font(.system(size: 12, weight: .semibold)) }
                 Text(titulo).font(.system(size: 13, weight: primario ? .semibold : .medium)).lineLimit(1)
                 if let teclas {
-                    Text(teclas).font(.system(size: 11, weight: .medium, design: .rounded)).foregroundStyle(Diseno.tintaTenue)
+                    Text(teclas).font(.system(size: 11, weight: .medium, design: .rounded)).opacity(0.45)
                 }
             }
-            .foregroundStyle(Diseno.tinta)
+            .foregroundStyle(primario ? Color.black : Diseno.tinta)
             .padding(.horizontal, 16)
             .frame(height: 38)
             .background(Capsule().fill(primario ? Color.white : Diseno.vidrio))
@@ -136,19 +126,19 @@ struct Chip: View {
         .foregroundStyle(Diseno.tintaSuave)
         .padding(.horizontal, 10)
         .padding(.vertical, 5)
-        .background(Capsule().fill(Color.white.opacity(0.45)))
-        .overlay(Capsule().strokeBorder(Color.white.opacity(0.65), lineWidth: 0.6))
+        .background(Capsule().fill(Color.white.opacity(0.07)))
+        .overlay(Capsule().strokeBorder(Color.white.opacity(0.1), lineWidth: 0.6))
     }
 }
 
-/// Encabezado de sección en mayúsculas monoespaciadas.
+/// Encabezado de sección en mayúsculas pequeñas con espaciado.
 struct EtiquetaSeccion: View {
     let titulo: String
 
     var body: some View {
         Text(titulo.uppercased())
-            .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .tracking(1.4)
+            .font(.system(size: 10, weight: .semibold))
+            .tracking(1.1)
             .foregroundStyle(Diseno.tintaTenue)
     }
 }
@@ -161,10 +151,10 @@ func lienzoConVidrio<Contenido: View>(_ fondo: NSImage, lienzo: CGSize, panel: C
     return ZStack {
         imagen
         imagen
-            .blur(radius: 26)
-            .brightness(0.06)
+            .blur(radius: 30)
+            .saturation(1.3)
             .mask(RoundedRectangle(cornerRadius: radio, style: .continuous).frame(width: panel.width, height: panel.height))
-        contenido().shadow(color: .black.opacity(0.20), radius: 34, y: 16)
+        contenido().shadow(color: .black.opacity(0.4), radius: 40, y: 20)
     }
     .frame(width: lienzo.width, height: lienzo.height)
 }
