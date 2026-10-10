@@ -210,6 +210,16 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
     let pb = NSPasteboard(name: NSPasteboard.Name("app.dictado.vista.\(UUID().uuidString)"))
     let historial = Historial(carpeta: carpeta, pasteboard: pb)
     let fondo = fondoDeMuestra()
+    // Variantes para revisar cada tipo: lista (texto), enlace, imagen, largo, archivo, codigo, color.
+    let variante = CommandLine.arguments.count > 3 ? CommandLine.arguments[3] : (modoLista ? "lista" : "")
+    // Dos archivos de ejemplo en la carpeta temporal (lo más antiguo del historial).
+    let documentos = carpeta.appendingPathComponent("Documentos")
+    try? FileManager.default.createDirectory(at: documentos, withIntermediateDirectories: true)
+    let archivos = ["Propuesta comercial.pdf", "Informe trimestral.pdf"].map { documentos.appendingPathComponent($0) }
+    for (i, url) in archivos.enumerated() { try? Data(count: 180_000 + i * 95_000).write(to: url) }
+    pb.clearContents()
+    pb.writeObjects(archivos as [NSURL])
+    historial.revisar(app: NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.finder").first)
     let recortes: [NSRect] = [
         NSRect(x: 0, y: 900, width: 1400, height: 900), NSRect(x: 1400, y: 300, width: 1200, height: 800),
         NSRect(x: 600, y: 0, width: 1600, height: 1000), NSRect(x: 200, y: 400, width: 900, height: 900),
@@ -226,11 +236,22 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
         let app = apps[i % apps.count]
         historial.revisar(app: NSRunningApplication.runningApplications(withBundleIdentifier: app.1).first)
     }
-    let textos: [(String, String, String?)] = [
+    var textos: [(String, String, String?)] = [
         ("Recordar revisar la propuesta comercial antes del viernes y cruzar las cifras con el informe trimestral.", "company.thebrowser.Browser", "https://www.example.com/informes"),
-        ("https://www.example.com/informe?id=12345", "company.thebrowser.Browser", nil),
+        ("https://www.example.com/informes/2026/trimestral?id=12345&vista=resumen", "company.thebrowser.Browser", nil),
         ("Cordial saludo,\n\nAdjunto el análisis que pidieron para la reunión del jueves.\n\nQuedo atento.", "com.apple.mail", nil),
     ]
+    if variante == "largo" {
+        let parrafo = "Este es un texto de ejemplo bastante largo para revisar cómo se ve la vista previa cuando el contenido no cabe: "
+            + "debe cortarse con limpieza, sin empujar los datos ni los botones fuera de la tarjeta, y la lista debe truncar el título en una sola línea. "
+        textos.append((String(repeating: parrafo, count: 6), "com.apple.Notes", nil))
+    }
+    if variante == "color" {
+        textos.append(("#7A5CFF", "com.figma.Desktop", nil))
+    }
+    if variante == "codigo" {
+        textos.append(("func sumar(_ a: Int, _ b: Int) -> Int {\n    let total = a + b\n    return total\n}", "com.apple.dt.Xcode", nil))
+    }
     for (texto, app, origen) in textos {
         pb.clearContents()
         let item = NSPasteboardItem()
@@ -241,9 +262,15 @@ func hojaPortapapeles(_ destino: URL, modoLista: Bool = false) -> Bool {
     }
     let estado = EstadoPanel()
     estado.appDestino = "Mail"
-    if modoLista {
+    if !variante.isEmpty {
         let lista = Portapapeles.filtrar(historial.recortes, estado)
-        estado.seleccion = lista.first { $0.texto.hasPrefix("Recordar") }?.id
+        estado.seleccion = switch variante {
+        case "enlace": lista.first { $0.tipo == .enlace }?.id
+        case "archivo": lista.first { $0.tipo == .archivo }?.id
+        case "imagen": lista.first { $0.tipo == .imagen }?.id
+        case "largo", "codigo", "color": lista.first?.id
+        default: lista.first { $0.texto.hasPrefix("Recordar") }?.id
+        }
     } else {
         estado.filtro = .imagenes
         let lista = Portapapeles.filtrar(historial.recortes, estado)

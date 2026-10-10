@@ -21,7 +21,7 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | | Cómo se usa | Reemplaza a |
 |---|---|---|
 | **Dictado** | Mantén **⌥Espacio**, habla y suelta: el texto se pega donde está el cursor (en cualquier app). **⌥⇧Espacio** guarda la idea como nota en tu carpeta de ideas. **Esc** cancela. | Handy, superwhisper, MacWhisper |
-| **Portapapeles** | **⌘⌥V**. Historial con búsqueda, filtros, varios elementos a la vez (⌘clic), arrastrar a otras apps, cuadrícula de imágenes, pegado con o sin formato, ⌘1–9. Ignora contraseñas. | Raycast, Paste, Maccy |
+| **Portapapeles** | **⌘⌥V**. Historial con búsqueda, filtros, varios elementos a la vez (⌘clic), arrastrar a otras apps, cuadrícula de imágenes, pegado con o sin formato, ⌘1–9. Cada tipo tiene su color (texto violeta, enlace azul, archivo durazno; la imagen, el suyo) y la vista previa muestra sus datos: palabras y caracteres, tamaño, proporción y paleta de una imagen, ruta y parámetros de un enlace, peso de los archivos. Ignora contraseñas. | Raycast, Paste, Maccy |
 | **Captura** | **⌘↩**. Área, ventana, pantalla, texto de una zona (OCR), grabación y temporizador. Destino: portapapeles, Escritorio, Descargas o una carpeta. | CleanShot X (lo básico), TextSniper |
 | **Isla del notch** | Siempre visible. Al pasar el mouse se abre. | Atoll, NotchNook, Boring Notch |
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
@@ -67,7 +67,7 @@ Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Li
 
 ### Portapapeles, captura y dictado
 
-![Portapapeles con tres imágenes elegidas](docs/portapapeles.jpg)
+![Portapapeles: el dial cuenta los recortes por tipo y la vista previa muestra el texto con sus datos](docs/portapapeles.jpg)
 
 ![Panel de captura](docs/captura.jpg)
 
