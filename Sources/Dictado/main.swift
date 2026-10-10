@@ -6,6 +6,10 @@ if argumentos.count > 2, argumentos[1] == "--vista-isla" {
     let ok = MainActor.assumeIsolated { hojaIsla(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)
 }
+if argumentos.count > 2, argumentos[1] == "--vista-verme" {
+    let ok = MainActor.assumeIsolated { hojaVerme(URL(fileURLWithPath: argumentos[2])) }
+    exit(ok ? 0 : 1)
+}
 if argumentos.count > 2, argumentos[1] == "--vista-salud" {
     let ok = MainActor.assumeIsolated { hojaSalud(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)
