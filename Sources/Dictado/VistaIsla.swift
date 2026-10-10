@@ -250,15 +250,15 @@ private struct BarraNivel: View {
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: estado.notch.height)
-            HStack(spacing: 16) {
-                Dial(lado: 62, valor: silencio ? 0 : valor, colores: colores, marcas: 40,
-                     brillo: silencio ? 0.3 : 0.55 + 0.45 * valor, fantasma: silencio ? valor : nil) {
+            HStack(spacing: 12) {
+                Dial(lado: 36, valor: silencio ? 0 : valor, colores: colores, marcas: 30, anillo: 3.5,
+                     brillo: silencio ? 0.25 : 0.45 + 0.4 * valor, fantasma: silencio ? valor : nil) {
                     Image(systemName: simbolo, variableValue: tipo == .volumen ? max(valor, 0.01) : 1)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 10.5, weight: .medium))
                         .foregroundStyle(silencio ? Self.rojoMudo : .white)
                         .contentTransition(.symbolEffect(.replace))
                 }
-                VStack(alignment: .leading, spacing: 5) {
+                VStack(alignment: .leading, spacing: 2) {
                     Rotulo(tipo == .brillo ? "Brillo" : (silencio ? "Silencio" : "Volumen"),
                            color: silencio ? Self.rojoMudo.opacity(0.9) : tono.claro)
                     Group {
@@ -268,21 +268,21 @@ private struct BarraNivel: View {
                             Label { Text("Pantalla") } icon: { Image(systemName: "display") }
                         }
                     }
-                    .font(.system(size: 11.5, weight: .medium))
-                    .foregroundStyle(.white.opacity(silencio ? 0.5 : 0.78))
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(silencio ? Halo.texto3 : Halo.texto2)
                     .labelStyle(EtiquetaJunta())
                     .lineLimit(1)
                 }
                 .layoutPriority(-1)
                 Spacer(minLength: 6)
                 if silencio {
-                    Text("Mudo").font(.system(size: 30, weight: .thin)).foregroundStyle(.white.opacity(0.55)).fixedSize()
+                    Text("Mudo").font(.system(size: 24, weight: .thin)).foregroundStyle(Halo.texto2).fixedSize()
                 } else {
-                    NumeroFino(texto: "\(Int((valor * 100).rounded()))", unidad: "%", tamano: 40, valor: valor)
+                    NumeroFino(texto: "\(Int((valor * 100).rounded()))", unidad: "%", tamano: 30, valor: valor)
                 }
             }
-            .padding(.leading, 30)
-            .padding(.trailing, 30)
+            .padding(.leading, 24)
+            .padding(.trailing, 26)
             .frame(maxHeight: .infinity)
         }
         .background {  // la isla toma el color del nivel desde el borde; más fuerte cuanto más alto
@@ -427,7 +427,7 @@ private struct SaludIsla: View {
     var body: some View {
         let tono: Tono = grave ? .rojo : .ambar
         Fila(notch: estado.notch, tono: tono) {
-            Dial(lado: 46, valor: 1, colores: tono.gradiente, marcas: 30, arco: 360, anillo: 4, brillo: 0.7, destello: false) {
+            Dial(lado: 38, valor: 1, colores: tono.gradiente, marcas: 28, arco: 360, anillo: 3.5, brillo: 0.6, destello: false) {
                 IconoSaltarin(simbolo: grave ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.67percent", color: tono.claro)
             }
             VStack(alignment: .leading, spacing: 1) {
@@ -455,7 +455,7 @@ private struct AgenteIsla: View {
         // "informe-diario falló: sin conexión" → título "informe-diario falló", detalle "sin conexión".
         let partes = alerta.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
         Fila(notch: estado.notch, tono: tono) {
-            Dial(lado: 46, valor: 1, colores: tono.gradiente, marcas: 30, arco: 360, anillo: 4, brillo: 0.7, destello: false) {
+            Dial(lado: 38, valor: 1, colores: tono.gradiente, marcas: 28, arco: 360, anillo: 3.5, brillo: 0.6, destello: false) {
                 IconoSaltarin(simbolo: "server.rack", color: tono.claro)
             }
             .modifier(Entrada())
@@ -463,8 +463,7 @@ private struct AgenteIsla: View {
                 Rotulo((caido ? "Sin respuesta · " : "Alerta · ") + nombre, color: tono.claro)
                 Text(partes.first ?? alerta).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
                 if partes.count > 1 {
-                    Text(partes[1]).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(partes[1]).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
                 }
             }
             Spacer(minLength: 6)
@@ -551,16 +550,16 @@ private struct ClaudeIsla: View {
         let detalle = necesita ? sesion.actividad : sesion.resumen
         Fila(notch: estado.notch, tono: necesita ? .claude : .verde) {
             ZStack(alignment: .bottomTrailing) {
-                EstrellaClaude().fill(Tono.claude.base).frame(width: 28, height: 28)
+                EstrellaClaude().fill(Tono.claude.base).frame(width: 26, height: 26)
                     .rotationEffect(.degrees(giro ? 45 : 0))
-                    .background { Resplandor(colores: Tono.claude.gradiente, difuso: 9).frame(width: 62, height: 62).opacity(0.6) }
+                    .background { Resplandor(colores: Tono.claude.gradiente, difuso: 8).frame(width: 54, height: 54).opacity(0.5) }
                 Image(systemName: necesita ? "exclamationmark.circle.fill" : "checkmark.circle.fill")
                     .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(.white, necesita ? Tono.claude.base : Tono.verde.base)
                     .background(Circle().fill(.black).padding(-1.5))
                     .offset(x: 4, y: 4)
             }
-            .frame(width: 36, height: 36)
+            .frame(width: 32, height: 32)
             .modifier(Entrada())
             .onAppear { withAnimation(.spring(response: 1.1, dampingFraction: 0.45)) { giro = true } }
             VStack(alignment: .leading, spacing: 1) {
@@ -613,7 +612,7 @@ private struct EventoIsla: View {
                                 .shadow(color: Tono.verde.base, radius: 2)
                             BotonUnirse(redondo: true) { unirse(enlace) }
                         }
-                        .frame(width: 48, height: 48)
+                        .frame(width: 44, height: 44)
                         .modifier(Entrada())
                     }
                 }
@@ -670,8 +669,8 @@ private struct BotonUnirse: View {
                         .fixedSize()
                 } else {
                     Image(systemName: "video.fill")
-                        .font(.system(size: redondo ? 14 : 11, weight: .semibold))
-                        .frame(width: redondo ? 38 : 28, height: redondo ? 38 : 28)
+                        .font(.system(size: redondo ? 13 : 11, weight: .semibold))
+                        .frame(width: redondo ? 34 : 28, height: redondo ? 34 : 28)
                         .background(Circle().fill(LinearGradient(colors: Tono.verde.gradiente.reversed(), startPoint: .top, endPoint: .bottom)))
                         .shadow(color: Tono.verde.base.opacity(0.6), radius: 8)
                 }
@@ -828,11 +827,11 @@ private struct Expandida: View {
                 }
             }
             .frame(height: estado.notch.height)
-            HStack(alignment: .top, spacing: 24) {
+            HStack(alignment: .top, spacing: 22) {
                 Reproductor(musica: musica)
-                    .frame(width: 226, alignment: .leading)
+                    .frame(width: 212, alignment: .leading)
                     .frame(maxHeight: .infinity, alignment: .center)
-                VStack(alignment: .leading, spacing: 9) {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 4) {
                         PildoraHalo(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
                                     activa: actual == .agentes) { elegir(.agentes) }
@@ -859,9 +858,9 @@ private struct Expandida: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding(.horizontal, 28)
-            .padding(.top, 8)
-            .padding(.bottom, 16)
+            .padding(.horizontal, 26)
+            .padding(.top, 4)
+            .padding(.bottom, 14)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background {  // la música tiñe el borde de abajo a la izquierda; la pestaña, a la derecha
@@ -917,10 +916,10 @@ private struct ResumenMac: View {
 
     var body: some View {
         let d = salud.diagnostico
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 9) {
             Button(action: abrir) {
                 HStack(spacing: 10) {
-                    PuntoBrillante(color: Tono.gravedad(d.gravedad).base, lado: 8)
+                    PuntoBrillante(color: Tono.gravedad(d.gravedad).base, lado: 7)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(d.titulo).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
                         Text(d.frase).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
@@ -945,10 +944,6 @@ private struct ResumenMac: View {
                 DialMac(valor: 1 - salud.discoLibre / max(1, salud.discoTotal), gravedad: salud.gravedadDisco,
                         numero: Self.gigas(salud.discoLibre), unidad: "GB", titulo: "Disco libre")
             }
-            if let top = salud.consumidores.max(by: { $0.memoria < $1.memoria }) {
-                Text("Lo que más consume: \(top.nombre) · \(Medida.bytes(top.memoria))")
-                    .font(Halo.detalle).foregroundStyle(Halo.texto3).lineLimit(1)
-            }
         }
     }
 }
@@ -962,10 +957,10 @@ private struct DialMac: View {
     let titulo: String
 
     var body: some View {
-        VStack(spacing: 7) {
-            Dial(lado: 62, valor: valor, colores: Tono.gravedad(gravedad).gradiente, marcas: 36, anillo: 5,
-                 brillo: gravedad == .mal ? 0.95 : (gravedad == .atento ? 0.7 : 0.32)) {
-                NumeroFino(texto: numero, unidad: unidad, tamano: 17, peso: .light)
+        VStack(spacing: 6) {
+            Dial(lado: 52, valor: valor, colores: Tono.gravedad(gravedad).gradiente, marcas: 32, anillo: 4,
+                 brillo: gravedad == .mal ? 0.8 : (gravedad == .atento ? 0.55 : 0.25)) {
+                NumeroFino(texto: numero, unidad: unidad, tamano: 14.5, peso: .light)
             }
             Rotulo(titulo, color: Halo.texto3)
         }
@@ -1166,12 +1161,12 @@ private struct Reproductor: View {
 
     var body: some View {
         if musica.hayPista {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 12) {
-                    Caratula(imagen: musica.caratula, lado: 58, radio: 13, resplandor: true)
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 11) {
+                    Caratula(imagen: musica.caratula, lado: 50, radio: 12, resplandor: true)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(musica.titulo).font(.system(size: 14.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
-                        Text(musica.artista).font(.system(size: 12)).foregroundStyle(Halo.texto2).lineLimit(1)
+                        Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                        Text(musica.artista).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
                     }
                     Spacer(minLength: 4)
                     Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
@@ -1285,7 +1280,7 @@ private struct ListaAgenda: View {
                                 .foregroundStyle(Halo.texto)
                         }
                     }
-                    Spacer(minLength: 10)
+                    Spacer(minLength: 6)
                     LineaDia(eventos: agenda.eventos, destacado: proxima?.id, ahora: ahora)
                 }
             }
@@ -1317,22 +1312,21 @@ private struct Protagonista: View {
             VStack(alignment: .leading, spacing: 7) {
                 Rotulo(c.rotulo, color: Tono.de(evento.color).claro)
                 HStack(alignment: .lastTextBaseline, spacing: 5) {
-                    NumeroPuntos(texto: c.numero, punto: 3.3, paso: 4.6, color: .white)
+                    NumeroPuntos(texto: c.numero, punto: 2.8, paso: 3.9, color: .white)
                     if !c.unidad.isEmpty {
                         Text(c.unidad).font(.system(size: 11, weight: .medium)).foregroundStyle(.white.opacity(0.5))
                     }
                 }
             }
             .fixedSize()
-            Rectangle().fill(.white.opacity(0.12)).frame(width: 0.5, height: 42)
+            Rectangle().fill(.white.opacity(0.12)).frame(width: 0.5, height: 36)
             VStack(alignment: .leading, spacing: 3) {
-                Text(evento.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(evento.titulo).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
                 Text(Tiempo.franja(evento, conEstado: false) + (evento.enlace.flatMap { $0.host }.map { " · " + Tiempo.servicio($0) } ?? "")).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
             }
             Spacer(minLength: 4)
             if evento.sePuedeUnir, let enlace = evento.enlace {
-                BotonUnirse(conTexto: true) { unirse(enlace) }
+                BotonUnirse(redondo: true) { unirse(enlace) }  // círculo, como contestar: el título cabe en una línea
             }
         }
     }

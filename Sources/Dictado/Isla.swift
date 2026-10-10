@@ -324,12 +324,12 @@ final class EstadoIsla {
         case .dictado: return CGSize(width: w + 2 * 120, height: h + 82)
         case .aviso: return CGSize(width: w + 2 * 100, height: h + 38)
         case .cancion: return CGSize(width: w + 2 * 120, height: h + 66)
-        case .evento: return CGSize(width: w + 2 * 150, height: h + 62)
+        case .evento: return CGSize(width: w + 2 * 150, height: h + 52)
         case .carga: return CGSize(width: w + 2 * 70, height: h)
-        case .claude: return CGSize(width: w + 2 * 140, height: h + 60)
-        case .salud: return CGSize(width: w + 2 * 136, height: h + 58)
-        case .agente: return CGSize(width: w + 2 * 140, height: h + 64)
-        case .nivel: return CGSize(width: w + 2 * 96, height: h + 76)
+        case .claude: return CGSize(width: w + 2 * 140, height: h + 58)
+        case .salud: return CGSize(width: w + 2 * 136, height: h + 50)
+        case .agente: return CGSize(width: w + 2 * 140, height: h + 50)
+        case .nivel: return CGSize(width: w + 2 * 92, height: h + 44)
         case nil: return CGSize(width: w + (alas ? 2 * 46 : 0) + (punto ? 2 * 14 : 0), height: h)
         }
     }
@@ -371,7 +371,7 @@ final class Isla {
     private var vigia: Timer?
     let salud: Salud
 
-    static let expandida = CGSize(width: 680, height: 250)
+    static let expandida = CGSize(width: 600, height: 200)
 
     init(hud: EstadoHUD, niveles: Bool, salud: Salud) {
         self.hud = hud

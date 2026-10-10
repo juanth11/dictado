@@ -96,7 +96,7 @@ struct DetalleAgente: View {
     var body: some View {
         let dia = DiaAgente(agente)
         let tono = Tono.agente(agente.estado)
-        VStack(alignment: .leading, spacing: 9) {
+        VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 Button(action: volver) {
                     HStack(spacing: 7) {
@@ -111,20 +111,18 @@ struct DetalleAgente: View {
                 Spacer(minLength: 4)
                 if consultando {
                     Text("actualizando…").font(Halo.detalle).foregroundStyle(Halo.texto3)
-                } else {
-                    Cifra(numero: "\(agente.tareas.filter(\.activa).count)", unidad: "activas", tamano: 13, peso: .semibold,
-                          color: Halo.texto2)
+                } else if dia.total > 0 {
+                    Cifra(numero: "\(dia.corridas.count)/\(dia.total)", unidad: "hoy", tamano: 13, peso: .semibold, color: Halo.texto2)
                 }
             }
             if agente.tareas.isEmpty {
                 Text(agente.alertas.first ?? agente.error ?? "Sin tareas programadas")
                     .font(Halo.cuerpo).foregroundStyle(tono.claro).lineLimit(2)
             } else {
-                Liquido(valor: max(0.08, dia.avance), tono: tono, alto: 20, icono: dia.fallas.isEmpty ? "checkmark" : "exclamationmark",
-                        texto: dia.total > 0 ? "\(dia.corridas.count) de \(dia.total) hoy" : "sin corridas hoy")
+                Liquido(valor: max(0.06, dia.avance), tono: tono, alto: 5)
                 RielHoy(tareas: agente.tareas)
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(filas(dia).prefix(4)) { FilaTarea(fila: $0) }
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(filas(dia).prefix(2)) { FilaTarea(fila: $0) }
                 }
             }
         }
@@ -149,7 +147,7 @@ struct DetalleAgente: View {
             FilaTarea.Datos(id: "c" + $0.nombre, etiqueta: "Ahora", nombre: $0.nombre, hora: "corriendo", tono: .neutro, hueco: false,
                             ayuda: $0.detalle)
         }
-        filas += dia.corridas.filter { $0.estado == "ok" }.prefix(2).map {
+        filas += dia.corridas.filter { $0.estado == "ok" }.prefix(1).map {
             FilaTarea.Datos(id: "u" + $0.nombre, etiqueta: "Corrió", nombre: $0.nombre, hora: $0.ultima.map(Tiempo.hora) ?? "",
                             tono: .verde, hueco: false, ayuda: $0.detalle)
         }
