@@ -113,6 +113,6 @@ Para terminar, enséñale a la persona:
 
 - Compilar: `swift build -c release`. Instalar: `./instalar.sh`.
 - Renders de las vistas sin abrir la app: `.build/release/Dictado --vista-isla /tmp/isla.png` (también `--vista-salud`, `--vista-portapapeles`, `--vista-captura`, `--vista-hud`). Para usar una imagen de fondo: `DICTADO_FONDO=~/ruta/imagen.jpg`.
-- Pruebas del portapapeles: `.build/release/Dictado --probar-portapapeles`.
+- Pruebas del portapapeles: `.build/release/Dictado --probar-portapapeles`. De "Liberar ya" (Papelera falsa en `/tmp`): `--probar-papelera`.
 - El código, los nombres y los comentarios están en español. Mantén ese estilo.
 - En reposo la app no debe consumir CPU: nada de animaciones continuas ni consultas en bucle; usa avisos del sistema (FSEvents, CoreAudio, EventKit, IOKit).

@@ -116,6 +116,92 @@ func probarPortapapeles() -> Bool {
     return fallas == 0
 }
 
+/// Prueba de "Liberar ya" con una Papelera y una bitácora falsas en /tmp: nunca toca la Papelera real ni la
+/// bitácora de la app. `Dictado --probar-papelera`
+func probarPapelera() -> Bool {
+    let fm = FileManager.default
+    let base = URL(fileURLWithPath: "/tmp/dictado-prueba-papelera-\(UUID().uuidString)")
+    let papelera = base.appendingPathComponent(".Trash")
+    let origen = base.appendingPathComponent("origen")
+    let fuera = base.appendingPathComponent("fuera")
+    let bitacora = base.appendingPathComponent("limpiezas.json")
+    for c in [papelera, origen, fuera] { try? fm.createDirectory(at: c, withIntermediateDirectories: true) }
+    defer { try? fm.removeItem(at: base) }
+    var fallas = 0
+    func revisar(_ nombre: String, _ condicion: Bool) {
+        print(condicion ? "  ✓" : "  ✗", nombre)
+        if !condicion { fallas += 1 }
+    }
+    func crear(_ carpeta: URL, _ nombre: String) -> URL {
+        let u = carpeta.appendingPathComponent(nombre)
+        try? Data(repeating: 7, count: 64 * 1024).write(to: u)
+        return u
+    }
+    func identificador(_ u: URL) -> UInt64? { (try? u.resourceValues(forKeys: [.fileIdentifierKey]))?.fileIdentifier }
+    func existe(_ u: URL) -> Bool { fm.fileExists(atPath: u.path) }
+    /// Como Bitacora.mover, pero a la Papelera falsa.
+    func mandar(_ nombre: String) -> (URL, RegistroLimpieza.Movimiento) {
+        let u = crear(origen, nombre)
+        let d = papelera.appendingPathComponent(nombre)
+        try? fm.moveItem(at: u, to: d)
+        return (d, .init(original: u.path, papelera: d.path, bytes: 65_536, identificador: identificador(d)))
+    }
+    let hace10 = Date().addingTimeInterval(-10 * 86_400)
+    let (viejo, movViejo) = mandar("cache-vieja")
+    let (reciente, movReciente) = mandar("cache-reciente")
+    let delUsuario = crear(papelera, "foto-del-usuario.jpg")      // lo botaste tú: no está en la bitácora
+    let afuera = crear(fuera, "documento.txt")                     // la bitácora apunta fuera de la Papelera
+    let movAfuera = RegistroLimpieza.Movimiento(original: "/tmp/x", papelera: afuera.path, bytes: 65_536)
+    let movEscape = RegistroLimpieza.Movimiento(original: "/tmp/x", papelera: papelera.path + "/../fuera/documento.txt", bytes: 65_536)
+    let suplantado = crear(papelera, "cache-suplantada")           // mismo nombre, otro archivo
+    let movSuplantado = RegistroLimpieza.Movimiento(original: "/tmp/x", papelera: suplantado.path, bytes: 65_536,
+                                                    identificador: (identificador(suplantado) ?? 0) &+ 1)
+    let legado = crear(papelera, "cache-legado")                   // bitácora vieja sin identificador: llegó hoy, no hace 10 días
+    let movLegado = RegistroLimpieza.Movimiento(original: "/tmp/x", papelera: legado.path, bytes: 65_536)
+    let (legadoHoy, conId) = mandar("cache-legado-hoy")           // bitácora vieja sin identificador, de hoy: sí cuenta
+    let movLegadoHoy = RegistroLimpieza.Movimiento(original: conId.original, papelera: conId.papelera, bytes: conId.bytes)
+    Bitacora.escribir([
+        RegistroLimpieza(fecha: hace10, titulo: "Cachés", movimientos: [movViejo, movAfuera, movEscape, movSuplantado]),
+        RegistroLimpieza(fecha: hace10.addingTimeInterval(60), titulo: "Registros", movimientos: [movLegado]),
+        RegistroLimpieza(fecha: Date(), titulo: "Cachés de programación", movimientos: [movReciente, movLegadoHoy]),
+    ], en: bitacora)
+
+    let pendientes = Bitacora.pendientes(papelera: papelera, en: bitacora, medir: true)
+    revisar("solo cuenta lo que Dictado mandó y sigue en la Papelera (3)", pendientes.count == 3)
+    let viejos = pendientes.filter { !$0.reciente }
+    let recientes = pendientes.filter(\.reciente)
+    revisar("separa lo de más de 7 días de lo reciente", viejos.map(\.movimiento.papelera) == [viejo.path]
+            && recientes.map(\.movimiento.papelera) == [reciente.path, legadoHoy.path])
+    revisar("mide el tamaño antes de borrar", pendientes.allSatisfy { $0.bytes >= 65_536 })
+
+    var r = Bitacora.liberar(viejos, papelera: papelera, en: bitacora)
+    revisar("por defecto borra solo lo de más de 7 días", r.cuantos == 1 && !existe(viejo) && existe(reciente))
+    revisar("no toca lo que botaste tú", existe(delUsuario))
+    revisar("no toca rutas fuera de la Papelera (ni con ..)", existe(afuera))
+    revisar("no toca otro archivo con el mismo nombre", existe(suplantado))
+    revisar("bitácora vieja: no borra lo que llegó en otro momento", existe(legado))
+    let forjado = Bitacora.Pendiente(fecha: hace10, movimiento: movAfuera, bytes: 65_536)
+    r = Bitacora.liberar([forjado], papelera: papelera, en: bitacora)
+    revisar("vuelve a comprobar justo antes de borrar", r.cuantos == 0 && existe(afuera))
+    let tras = Bitacora.todas(bitacora)
+    revisar("la bitácora ya no anota lo borrado", !tras.flatMap(\.movimientos).contains { $0.papelera == viejo.path }
+            && tras.count == 3)
+    revisar("Deshacer sigue ofreciendo lo reciente", Bitacora.ultimaDeshacible(bitacora)?.movimientos.first?.papelera == reciente.path)
+
+    r = Bitacora.liberar(recientes, papelera: papelera, en: bitacora)
+    revisar("lo reciente se borra cuando lo confirmas (también lo de bitácoras viejas)", r.cuantos == 2 && !existe(reciente) && !existe(legadoHoy))
+    revisar("sin nada que deshacer, Deshacer desaparece", Bitacora.ultimaDeshacible(bitacora) == nil)
+    revisar("Liberar ya se oculta: no queda nada pendiente", Bitacora.pendientes(papelera: papelera, en: bitacora).isEmpty)
+    revisar("lo tuyo sigue intacto al final", existe(delUsuario) && existe(afuera) && existe(suplantado) && existe(legado))
+
+    let snapshots = "Snapshots for volume group containing disk /:\ncom.apple.os.update-ABC123\n"
+    revisar("el sistema en uso solo no cuenta como actualización", !EspacioOculto.actualizacionPreparada(snapshots))
+    revisar("detecta una actualización preparada", EspacioOculto.actualizacionPreparada(snapshots + "com.apple.os.update-MSUPrepareUpdate\n"))
+    revisar("Time Machine no cuenta", !EspacioOculto.actualizacionPreparada("com.apple.TimeMachine.2026-10-09-101010.local\n"))
+    print(fallas == 0 ? "todo bien" : "\(fallas) fallas")
+    return fallas == 0
+}
+
 /// Render del panel con capturas de ejemplo (recortes del fondo de pantalla) en la cuadrícula de imágenes,
 /// tres seleccionadas. `Dictado --vista-portapapeles salida.png`
 @MainActor
@@ -324,7 +410,7 @@ func hojaIsla(_ destino: URL) -> Bool {
     return (try? png.write(to: destino)) != nil
 }
 
-/// Render del panel Salud del Mac (pestañas Ahora y Limpieza) con datos de ejemplo. `Dictado --vista-salud salida.png`
+/// Render del panel Salud del Mac (Ahora, Limpieza y el final de Limpieza) con datos de ejemplo. `Dictado --vista-salud salida.png`
 @MainActor
 func hojaSalud(_ destino: URL) -> Bool {
     let fondo = fondoDeMuestra()
@@ -382,15 +468,46 @@ func hojaSalud(_ destino: URL) -> Bool {
         ]
         e.abiertos = ["dependencias"]
         e.ultima = RegistroLimpieza(fecha: Date(), titulo: "x", movimientos: [])
-        e.mensaje = "2,1 GB de cachés de programación a la Papelera. Se libera al vaciarla; puedes deshacer."
+        e.mensaje = "2,1 GB de cachés de programación a la Papelera (puedes deshacer). El disco todavía no gana espacio: se libera con «Liberar ya» o al vaciar la Papelera."
+        // Lo que Dictado dejó en la Papelera: el botón "Liberar ya" aparece con el total.
+        func pendiente(_ dias: Double, _ bytes: Int64) -> Bitacora.Pendiente {
+            Bitacora.Pendiente(fecha: Date().addingTimeInterval(-dias * 86_400),
+                               movimiento: .init(original: "/tmp/x", papelera: "/tmp/x", bytes: bytes), bytes: bytes)
+        }
+        e.pendientes = [pendiente(12, 2_400_000_000), pendiente(0, 2_100_000_000)]
+        e.discoPurgable = 2.8e9
+        e.actualizacionLista = true
         return e
     }
-    func panel(_ pestana: Int) -> some View {
-        lienzoConVidrio(fondo, lienzo: CGSize(width: 800, height: 720), panel: CGSize(width: Salud.ancho, height: Salud.alto), radio: 30) {
-            VistaSalud(estado: estado(pestana), control: nil, simulado: true)
+    func icloud() -> Limpiable {
+        func item(_ nombre: String, _ detalle: String, _ bytes: Int64) -> ItemLimpieza {
+            ItemLimpieza(url: URL(fileURLWithPath: "/tmp/" + nombre), nombre: nombre, detalle: detalle, bytes: bytes)
+        }
+        return Limpiable(id: "icloud", titulo: "Archivos de iCloud descargados",
+                         detalle: "grabacion-taller.mov 1,2 GB · fotos-viaje.zip 640 MB · manual.pdf 96 MB — siguen en iCloud y se descargan al abrirlos",
+                         simbolo: "icloud.and.arrow.down", items: [
+                             item("grabacion-taller.mov", "iCloud Drive › Videos · sin abrir desde 14 ago", 1_200_000_000),
+                             item("fotos-viaje.zip", "iCloud Drive › Archivo · sin abrir desde 2 jun", 640_000_000),
+                             item("manual.pdf", "Documentos › Referencias · sin abrir desde 21 sept", 96_000_000),
+                         ], accion: .quitarDescarga, boton: "Quitar descargas")
+    }
+    /// En los renders no hay desplazamiento: Limpieza se muestra en dos vistas, el principio de la lista y el final
+    /// (iCloud desplegado, tus cosas y el espacio oculto), como si la hubieras bajado.
+    func panel(_ pestana: Int, final: Bool = false) -> some View {
+        let e = estado(pestana)
+        if pestana == 1 && !final { e.limpiables.insert(icloud(), at: 4) }
+        if final {
+            e.limpiables = [icloud()] + e.limpiables.filter { $0.id == "wa" }
+            e.abiertos = ["icloud"]
+            // Tras "Liberar ya" con lo de más de 7 días: queda lo reciente, que pide confirmación aparte.
+            e.pendientes.removeAll { !$0.reciente }
+            e.mensaje = "Borré para siempre 2,4 GB de la Papelera. El disco ganó 2,4 GB."
+        }
+        return lienzoConVidrio(fondo, lienzo: CGSize(width: 800, height: 720), panel: CGSize(width: Salud.ancho, height: Salud.alto), radio: 30) {
+            VistaSalud(estado: e, control: nil, simulado: true)
         }
     }
-    let hoja = HStack(spacing: 0) { panel(0); panel(1) }
+    let hoja = HStack(spacing: 0) { panel(0); panel(1); panel(1, final: true) }
     let renderer = ImageRenderer(content: hoja)
     renderer.scale = 2
     guard let cg = renderer.cgImage,

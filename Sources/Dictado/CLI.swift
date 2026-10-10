@@ -181,16 +181,32 @@ enum CLI {
             try? await Task.sleep(for: .seconds(2))
             let m = medidor.medir()
             print(String(format: "procesador %.0f %% · gráficos %.0f %% · memoria %.1f GB · swap %.1f GB · presión %d · disco libre %.1f GB",
-                         m.cpu * 100, m.gpu * 100, m.memoriaUsada / 1e9, m.swap / 1e9, m.presion, m.discoLibre / 1e9))
+                         m.cpu * 100, m.gpu * 100, m.memoriaUsada / 1e9, m.swap / 1e9, m.presion, m.disco.disponible / 1e9))
             for p in m.procesos.sorted(by: { $0.cpu > $1.cpu }).prefix(6) {
                 print(String(format: "  %5.1f %% · %6.0f MB · %@ (dueño %d)", p.cpu * 100, p.memoria / 1e6, p.nombre, p.responsable))
             }
             let t0 = Date()
             let abiertas = await MainActor.run { Escaner.appsAbiertas() }
-            for l in Escaner.analizar(abiertas: abiertas) {
+            let icloud = Funcion.icloud.activa
+            let lista = Escaner.analizar(abiertas: abiertas, icloud: icloud)
+            for l in lista {
                 print("  \(l.segura ? "✓" : "·") \(l.titulo): \(Medida.bytes(Double(l.bytes))) — \(l.detalle) [\(l.items.count)]")
             }
             print(String(format: "análisis de limpieza: %.1f s", Date().timeIntervalSince(t0)))
+            // Quitar descargas de iCloud: si la categoría aparece y por qué no, sin listar archivos.
+            let raices = Escaner.carpetasICloud()
+            let nube = lista.first(where: \.esNube)
+            print("iCloud: función \(icloud ? "activa" : "apagada") · iCloud Drive \(raices.isEmpty ? "no está" : "sí (\(raices.count) carpeta\(raices.count == 1 ? "" : "s"))")"
+                  + " · categoría: " + (nube.map { "aparece, \($0.items.count) archivos, \(Medida.bytes(Double($0.total)))" } ?? "no aparece"))
+            // Espacio oculto y lo que Dictado dejó en la Papelera (solo lectura).
+            let d = medidor.disco(fresco: true)
+            print("espacio oculto: actualización de macOS lista: \(EspacioOculto.actualizacionPreparada() ? "sí" : "no")"
+                  + " · memoria de reserva en disco: \(Medida.bytes(m.swap))"
+                  + " · macOS puede liberar solo: \(Medida.bytes(max(0, d.disponible - d.libre)))")
+            let pendientes = Bitacora.pendientes()
+            let viejos = pendientes.filter { !$0.reciente }
+            print("papelera de Dictado: \(pendientes.count) elementos · \(Medida.bytes(Double(pendientes.reduce(0) { $0 + $1.bytes })))"
+                  + " (más de 7 días: \(Medida.bytes(Double(viejos.reduce(0) { $0 + $1.bytes }))))")
             return 0
         }
 

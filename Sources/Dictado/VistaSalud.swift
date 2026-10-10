@@ -216,36 +216,45 @@ private struct PestanaLimpieza: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 14) {
-                VStack(alignment: .leading, spacing: 3) {
-                    if estado.analizando && estado.limpiables.isEmpty {
-                        Text("Midiendo tu disco…").font(.system(size: 19, weight: .semibold)).foregroundStyle(Diseno.tinta)
-                        Text("Unos segundos. No se mueve nada sin que lo pidas.").font(.system(size: 12.5)).foregroundStyle(Diseno.tintaSuave)
-                    } else {
-                        Text("Puedes recuperar \(Medida.bytes(Double(estado.recuperable))) sin riesgo")
-                            .font(.system(size: 19, weight: .semibold)).foregroundStyle(Diseno.tinta)
-                        Text("Y revisar \(Medida.bytes(Double(estado.revisable))) más de cosas tuyas. Libre ahora: \(Medida.bytes(estado.discoLibre)).")
-                            .font(.system(size: 12.5)).foregroundStyle(Diseno.tintaSuave)
+            // Dos filas: el título con "medir de nuevo"; debajo, el detalle con Deshacer y Liberar ya (así el título
+            // no se parte en dos líneas cuando están los dos botones).
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 14) {
+                    Text(estado.analizando && estado.limpiables.isEmpty
+                         ? "Midiendo tu disco…" : "Puedes recuperar \(Medida.bytes(Double(estado.recuperable))) sin riesgo")
+                        .font(.system(size: 19, weight: .semibold)).foregroundStyle(Diseno.tinta).lineLimit(1)
+                    Spacer(minLength: 8)
+                    BotonCirculo(simbolo: "arrow.clockwise", lado: 36, ayuda: estado.analizando ? "Midiendo…" : "Medir de nuevo") { control?.analizar() }
+                }
+                HStack(spacing: 10) {
+                    Text(estado.analizando && estado.limpiables.isEmpty
+                         ? "Unos segundos. No se mueve nada sin que lo pidas."
+                         : "Y revisar \(Medida.bytes(Double(estado.revisable))) más de cosas tuyas. Libre ahora: \(Medida.bytes(estado.discoLibre)).")
+                        .font(.system(size: 12.5)).foregroundStyle(Diseno.tintaSuave)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    if estado.ultima != nil {
+                        BotonPildora(titulo: "Deshacer", simbolo: "arrow.uturn.backward") { control?.deshacer() }
+                            .help("Devuelve a su lugar lo de la última limpieza")
+                    }
+                    // Solo si Dictado dejó algo en la Papelera: lo borra para siempre (pregunta antes, con el tamaño).
+                    if estado.papeleraTotal > 0 {
+                        BotonPildora(titulo: "Liberar ya", teclas: Medida.bytes(Double(estado.papeleraTotal)), simbolo: "trash") { control?.liberar() }
+                            .help("Borra para siempre solo lo que Dictado mandó a la Papelera; lo tuyo no se toca. Te pregunta antes.")
                     }
                 }
-                Spacer()
-                if estado.ultima != nil {
-                    BotonPildora(titulo: "Deshacer", simbolo: "arrow.uturn.backward") { control?.deshacer() }
-                        .help("Devuelve a su lugar lo de la última limpieza")
-                }
-                BotonCirculo(simbolo: "arrow.clockwise", lado: 36, ayuda: estado.analizando ? "Midiendo…" : "Medir de nuevo") { control?.analizar() }
             }
             if !estado.mensaje.isEmpty {
                 Label(estado.mensaje, systemImage: "checkmark.circle.fill")
                     .font(.system(size: 12)).foregroundStyle(Gravedad.bien.color)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            if simulado {
-                lista
+            if simulado {  // render: lo que no cabe se corta abajo, como la lista desplazable de la app
+                lista.frame(minHeight: 0, maxHeight: .infinity, alignment: .top).clipped()
             } else {
                 ScrollView(showsIndicators: false) { lista }
             }
-            Text("Nada se borra para siempre: va a la Papelera y puedes deshacer. El espacio se libera cuando vacías la Papelera desde el Finder.")
+            Text("Nada se borra sin preguntarte: va a la Papelera y puedes deshacer. El espacio se libera con «Liberar ya», que solo borra lo que mandó Dictado.")
                 .font(.system(size: 10.5)).foregroundStyle(Diseno.tintaTenue)
         }
     }
@@ -253,17 +262,44 @@ private struct PestanaLimpieza: View {
     private var lista: some View {
         VStack(alignment: .leading, spacing: 8) {
             let indices = Array(estado.limpiables.indices)
-            let seguras = indices.filter { estado.limpiables[$0].segura }
+            let seguras = indices.filter { estado.limpiables[$0].segura && !estado.limpiables[$0].esNube }
+            let nube = indices.filter { estado.limpiables[$0].esNube }
             let guiadas = indices.filter { !estado.limpiables[$0].segura }
             if !seguras.isEmpty {
                 EtiquetaSeccion(titulo: "Seguro · va a la Papelera y se regenera solo")
                 ForEach(seguras, id: \.self) { i in fila(i) }
             }
+            if !nube.isEmpty {
+                EtiquetaSeccion(titulo: "iCloud · sigue en la nube y se baja al abrirlo").padding(.top, 4)
+                ForEach(nube, id: \.self) { i in fila(i) }
+            }
             if !guiadas.isEmpty {
                 EtiquetaSeccion(titulo: "Revisa tú · son tus cosas").padding(.top, 4)
                 ForEach(guiadas, id: \.self) { i in fila(i) }
             }
+            let ocultos = espacioOculto
+            if !ocultos.isEmpty {
+                EtiquetaSeccion(titulo: "Espacio oculto · solo para que sepas").padding(.top, 4)
+                ForEach(ocultos, id: \.titulo) { o in FilaInfo(simbolo: o.simbolo, titulo: o.titulo, detalle: o.detalle, bytes: o.bytes) }
+            }
         }
+    }
+
+    /// Lo que ocupa disco sin estar en ninguna carpeta tuya, en palabras simples. Solo lectura.
+    private var espacioOculto: [(simbolo: String, titulo: String, detalle: String, bytes: Double?)] {
+        var lista: [(simbolo: String, titulo: String, detalle: String, bytes: Double?)] = []
+        if estado.actualizacionLista {
+            lista.append(("arrow.down.circle", "Actualización de macOS descargada y lista",
+                          "Instálala o descártala en Ajustes → General → Actualización de software", nil))
+        }
+        if estado.swap >= 500e6 {
+            lista.append(("memorychip", "Memoria de reserva en disco", "macOS la usa cuando falta memoria; se libera al reiniciar", estado.swap))
+        }
+        if estado.discoPurgable >= 500e6 {
+            lista.append(("sparkles", "Lo que macOS puede liberar solo",
+                          "Cachés que macOS borra por su cuenta cuando necesita espacio; ya cuentan como libres", estado.discoPurgable))
+        }
+        return lista
     }
 
     private func fila(_ i: Int) -> some View {
@@ -276,6 +312,34 @@ private struct PestanaLimpieza: View {
                                 }
                             },
                             accion: { control?.ejecutar(estado.limpiables[i]) })
+    }
+}
+
+/// Un dato informativo (espacio oculto): sin botón, con un fondo más tenue que las categorías.
+private struct FilaInfo: View {
+    let simbolo: String
+    let titulo: String
+    let detalle: String
+    let bytes: Double?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: simbolo).font(.system(size: 13, weight: .medium)).foregroundStyle(Diseno.tinta.opacity(0.55))
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(Color.white.opacity(0.5)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text(titulo).font(.system(size: 13, weight: .semibold)).foregroundStyle(Diseno.tinta).lineLimit(1)
+                Text(detalle).font(.system(size: 11)).foregroundStyle(Diseno.tintaSuave).lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if let bytes {
+                Text(Medida.bytes(bytes)).font(.system(size: 13, weight: .semibold, design: .rounded)).monospacedDigit()
+                    .foregroundStyle(Diseno.tintaSuave)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.white.opacity(0.18)))
     }
 }
 
