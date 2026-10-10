@@ -5,12 +5,12 @@ Una sola app nativa de macOS, liviana (unos 40 MB de memoria y 0 % de procesador
 - **Dictado por voz** local, que pega donde está el cursor.
 - **Portapapeles** con historial.
 - **Capturas** de pantalla con OCR.
-- **Una isla en el notch** con música, agenda, llamadas, sesiones de Claude Code, volumen y brillo.
+- **Una isla en el notch** con música, agenda, llamadas, sesiones de Claude Code, agentes remotos, volumen y brillo.
 - **Un monitor y limpiador del Mac** honesto.
 
 Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni tus archivos a ningún servidor.
 
-![La isla abierta: música con los colores de la carátula, sesiones de Claude Code y la llamada en curso](docs/isla-abierta.jpg)
+![La isla abierta: música con los colores de la carátula, la pestaña Agentes (Claude esperándote y un agente remoto con sus tareas) y la llamada en curso](docs/isla-abierta.jpg)
 
 > **Instalación en un paso:** abre [Claude Code](https://claude.com/claude-code) en esta carpeta y escribe *«instala y configura Dictado»*. Claude sigue las instrucciones de [`CLAUDE.md`](CLAUDE.md), te hace tres preguntas y te guía con los permisos.
 
@@ -37,18 +37,47 @@ Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Li
 
 ![Todas las vistas de la isla](docs/isla.jpg)
 
-- **Música (Spotify):** carátula, progreso y controles, con un degradado sacado de la carátula. Cuando cambia la canción, aparece "Ahora suena".
-- **Agenda:** tus próximos eventos del Calendario de macOS, también de Google si agregas la cuenta en Ajustes → Cuentas de internet. A los 5 minutos de una reunión salen una cuenta regresiva y un botón **Unirse** que abre el Meet, Zoom o Teams del evento.
-- **Llamadas:** cuando una app usa el micrófono o la cámara, la isla muestra el ícono de la app, un cronómetro verde y el punto verde (cámara) o naranja (micrófono), como en el iPhone.
-- **Claude Code:** tus sesiones abiertas.
-  - Qué está haciendo cada una ("Editando App.swift · 4 min").
-  - Cuándo te necesita (qué permiso o qué pregunta), con un botón que abre justo esa sesión.
-  - Cuándo terminó y con qué frase.
-  - El contexto de cada chat y los tokens del día.
+La isla habla un mismo idioma visual: diales con un anillo de marcas finas que se enciende, resplandores de color según lo que pasa (azul y violeta el volumen, ámbar el brillo, verde, ámbar o rojo la salud y los agentes) y números grandes y finos. En reposo no anima nada (0 % de procesador); solo se mueve con la isla abierta o en un aviso pasajero.
 
-  Se lee `~/.claude` en solo lectura.
-- **Volumen y brillo:** las teclas del teclado muestran una barra en el notch en lugar del cuadro de macOS.
+- **Música (Spotify):** carátula, progreso y controles, con un degradado sacado de la carátula. Cuando cambia la canción, aparece "Ahora suena".
+- **Agenda:** la próxima reunión como protagonista, con la cuenta regresiva en números de puntos y el botón **Unirse**, y el resto del día en una línea de tiempo con la hora actual marcada. Lee el Calendario de macOS (también Google si agregas la cuenta en Ajustes → Cuentas de internet). A los 5 minutos de una reunión sale un aviso con la cuenta regresiva y el botón para unirte al Meet, Zoom o Teams del evento.
+- **Llamadas:** cuando una app usa el micrófono o la cámara, la isla muestra el ícono de la app, un cronómetro verde y el punto verde (cámara) o naranja (micrófono), como en el iPhone.
+- **Agentes:** en una sola pestaña, tus sesiones de Claude Code y tus [agentes remotos](#agentes-remotos), primero lo que necesita atención.
+  - Por cada sesión de Claude: qué está haciendo ("Editando App.swift · 4 min"), qué te pide (permiso o pregunta, resaltado en naranja) y el contexto del chat. El clic abre justo esa sesión. Arriba, los tokens del día por hora.
+  - Por cada agente remoto: su estado de un vistazo (anillo verde, ámbar o rojo), su resumen, las alertas destacadas y sus tareas programadas con "hace 2 h" y la próxima ejecución.
+  - Avisos: cuando una sesión te necesita o termina, y cuando un agente remoto tiene una alerta nueva (con **Ver**, que abre la isla en esta pestaña).
+
+  De Claude se lee `~/.claude` en solo lectura.
+- **Mac:** cuatro diales (procesador, memoria, gráficos y disco) cuyo resplandor sube con la gravedad, el titular del diagnóstico y el ícono ↗ que abre Salud del Mac.
+- **Volumen y brillo:** las teclas del teclado muestran un dial en el notch en lugar del cuadro de macOS, con el número grande y, en el volumen, a dónde va el sonido (por ejemplo, tus AirPods). Al mantener la tecla el dial se mueve sin volver a aparecer; en silencio se apaga y deja marcado el volumen guardado.
 - **Cargador, dictado en vivo y avisos de salud** del Mac.
+
+### Agentes remotos
+
+Si tienes agentes trabajando fuera del Mac (por ejemplo, un agente en un servidor con tareas programadas), la pestaña Agentes los muestra junto a Claude Code. Dictado solo **lee** su estado: ejecuta un comando que tú configuras y que imprime JSON (cada 10 minutos y al abrir la pestaña, como mucho una vez cada 2 minutos; máximo 20 segundos por consulta).
+
+```bash
+defaults write app.dictado agentes -array '{ nombre = "Mi agente"; comando = "ssh mi-servidor cat /ruta/estado.json"; }'
+```
+
+El comando debe imprimir algo así (todo es opcional salvo `estado`):
+
+```json
+{
+  "estado": "ok",
+  "resumen": "10 tareas activas · todo bien",
+  "alertas": ["informe-diario falló: el servidor de correo no respondió"],
+  "tareas": [
+    { "nombre": "informe-diario", "estado": "ok", "ultima": "2026-10-09T08:03:07-05:00",
+      "proxima": "2026-10-10T08:00:00-05:00", "detalle": "todos los días a las 8" }
+  ]
+}
+```
+
+- `estado` del agente: `ok`, `alerta` o `caido`. Estado de cada tarea: `ok`, `error`, `pausada` o `corriendo`. Las fechas van en ISO 8601.
+- Cada alerta nueva aparece una vez como aviso en la isla.
+- Para probarlo sin abrir la isla: `.build/release/Dictado --agentes` (o `~/Applications/Dictado.app/Contents/MacOS/Dictado --agentes`).
+- Si no configuras ninguno, la pestaña muestra solo las sesiones de Claude Code.
 
 ### Salud del Mac
 
@@ -126,6 +155,7 @@ cat ~/Library/Application\ Support/Dictado/estado.txt
 | Correcciones automáticas | `~/Library/Application Support/Dictado/correcciones.txt`, una línea por regla con la forma `lo que transcribe = lo correcto` |
 | Estilo del indicador de dictado | Menú → Estilo (Prisma por defecto) |
 | Volumen y brillo en la isla | Menú → Volumen y brillo en la isla |
+| Agentes remotos en la pestaña Agentes | `defaults write app.dictado agentes -array '{ nombre = "Mi agente"; comando = "…"; }'` (ver [Agentes remotos](#agentes-remotos)) |
 
 Después de cambiar un ajuste con `defaults`, reinicia Dictado (menú → Salir y ábrela de nuevo).
 
@@ -136,6 +166,7 @@ Después de cambiar un ajuste con `defaults`, reinicia Dictado (menú → Salir 
 - El portapapeles vive en `~/Library/Application Support/Dictado/Portapapeles` y salta lo que las apps marcan como contraseña.
 - Lo único que sale a internet es la consulta de la carátula de Spotify (el oEmbed público de Spotify).
 - La parte de Claude Code **solo lee** `~/.claude/sessions` y los transcriptos; nunca escribe ahí.
+- Los agentes remotos se leen con el comando que tú configuras; Dictado no se conecta a ningún servidor por su cuenta.
 - La limpieza mueve a la Papelera y anota cada movimiento en `limpiezas.json` para poder deshacer. Borrar para siempre lo decides tú: «Liberar ya» solo borra lo que mandó Dictado y pregunta antes.
 
 ## Cómo está hecho
@@ -148,8 +179,9 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `Transcripcion.swift`, `Salida.swift` | Voz a texto, pegado e ideas |
 | `Portapapeles.swift`, `VistaPortapapeles.swift` | Historial y panel |
 | `Captura.swift` | Panel de capturas y OCR |
-| `Isla.swift`, `VistaIsla.swift` | La isla del notch (música, agenda, llamadas, actividades) |
-| `Claude.swift` | Sesiones de Claude Code (solo lectura) |
+| `Isla.swift`, `VistaIsla.swift` | La isla del notch (música, agenda, llamadas, actividades, pestañas Agentes, Agenda y Mac) |
+| `DialesIsla.swift` | Lenguaje visual de la isla: diales con marcas finas, resplandores, números finos y de puntos |
+| `Claude.swift`, `Agentes.swift` | Sesiones de Claude Code (solo lectura) y agentes remotos (lector del JSON que imprime tu comando) |
 | `Privacidad.swift`, `Niveles.swift` | Cámara y micrófono en uso; volumen y brillo |
 | `Salud.swift`, `VistaSalud.swift`, `Papelera.swift`, `ICloud.swift` | Medidor, escáner de limpieza, bitácora para deshacer, "Liberar ya" y descargas de iCloud |
 | `HUD.swift`, `Estilos*.swift`, `Diseno.swift` | Indicador de dictado y lenguaje visual |
@@ -157,7 +189,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `PulidoIA.swift`, `AccionesTexto.swift`, `VistaAcciones.swift`, `IALocal.swift` | Dictado pulido y acciones sobre texto seleccionado con el modelo de Apple en el Mac |
 | `Funciones.swift` | Registro de funciones opcionales, interruptores del menú Funciones y lo que cada módulo puede usar de la app |
 | `MaquetaVerme.swift` | Maqueta (solo render) del espejo de cámara «Verme», no integrada a la app |
-| `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--vista-isla salida.png`) |
+| `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--agentes`, `--vista-isla salida.png`) |
 
 ## Desinstalar
 

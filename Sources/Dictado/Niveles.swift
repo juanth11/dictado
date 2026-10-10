@@ -120,6 +120,25 @@ final class Niveles {
 
 // MARK: - CoreAudio
 
+/// A dónde va el sonido: nombre del dispositivo y un ícono según lo que parece ser.
+struct SalidaAudio: Equatable {
+    var nombre: String
+    var integrado = false
+
+    var simbolo: String {
+        let n = nombre.lowercased()
+        if integrado { return "laptopcomputer" }
+        if n.contains("airpods max") { return "airpods.max" }
+        if n.contains("airpods pro") { return "airpods.pro" }
+        if n.contains("airpods") { return "airpods" }
+        if n.contains("beats") { return "beats.headphones" }
+        if n.contains("homepod") { return "homepod.fill" }
+        if ["auricular", "audífono", "audifono", "headphone", "headset", "buds"].contains(where: n.contains) { return "headphones" }
+        if ["display", "pantalla", "monitor", "hdmi", "tv"].contains(where: n.contains) { return "display" }
+        return "hifispeaker.fill"
+    }
+}
+
 /// Lectura y escritura de propiedades de CoreAudio (volumen, silencio, quién usa el micrófono).
 enum Audio {
     static let sistema = AudioObjectID(kAudioObjectSystemObject)
@@ -166,6 +185,22 @@ enum Audio {
 
     static func ponerVolumen(_ id: AudioDeviceID, _ valor: Double) -> Bool {
         escribir(id, kAudioHardwareServiceDeviceProperty_VirtualMainVolume, Float32(valor), kAudioDevicePropertyScopeOutput)
+    }
+
+    /// Nombre del dispositivo ("AirPods Pro", "Altavoces del MacBook").
+    static func nombre(_ id: AudioDeviceID) -> String? {
+        var d = direccion(kAudioObjectPropertyName)
+        var texto: Unmanaged<CFString>?
+        var tam = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        guard AudioObjectGetPropertyData(id, &d, 0, nil, &tam, &texto) == noErr else { return nil }
+        return texto?.takeRetainedValue() as String?
+    }
+
+    /// La salida actual con un ícono que la describe, para mostrar a dónde va el sonido.
+    static func descripcionSalida() -> SalidaAudio? {
+        guard let id = salida(), let nombre = nombre(id), !nombre.isEmpty else { return nil }
+        let integrado = leer(id, kAudioDevicePropertyTransportType, UInt32(0)) == kAudioDeviceTransportTypeBuiltIn
+        return SalidaAudio(nombre: nombre, integrado: integrado)
     }
 
     static func silenciado(_ id: AudioDeviceID) -> Bool? {

@@ -297,12 +297,18 @@ final class EstadoIsla {
         case cancion
         case evento(titulo: String, inicio: Date, color: Color, enlace: URL?)
         case carga(porcentaje: Int)
-        case nivel(tipo: Niveles.Tipo, valor: Double, silencio: Bool)
+        case nivel(tipo: Niveles.Tipo, valor: Double, silencio: Bool, salida: SalidaAudio? = nil)
         case claude(sesion: SesionesClaude.Sesion, necesita: Bool, duracion: TimeInterval)
         case salud(titulo: String, detalle: String, grave: Bool)
+        /// Un agente remoto (servidor) avisa de un problema; "Ver" abre la pestaña Agentes.
+        case agente(nombre: String, alerta: String, caido: Bool = false)
     }
 
+    /// Pestañas de la isla abierta. nil = la que más importa ahora (ver `Expandida.porDefecto`).
+    enum Pestana { case agentes, agenda, mac }
+
     var expandida = false
+    var pestana: Pestana?
     var notch = CGSize(width: 200, height: 32)
     var actividad: Actividad?
     var idActividad = UUID()     // cambia con cada actividad: dispara la animación de entrada
@@ -317,11 +323,12 @@ final class EstadoIsla {
         case .dictado: return CGSize(width: w + 2 * 120, height: h + 82)
         case .aviso: return CGSize(width: w + 2 * 100, height: h + 38)
         case .cancion: return CGSize(width: w + 2 * 120, height: h + 66)
-        case .evento: return CGSize(width: w + 2 * 150, height: h + 52)
+        case .evento: return CGSize(width: w + 2 * 150, height: h + 62)
         case .carga: return CGSize(width: w + 2 * 70, height: h)
-        case .claude: return CGSize(width: w + 2 * 140, height: h + 58)
-        case .salud: return CGSize(width: w + 2 * 130, height: h + 50)
-        case .nivel: return CGSize(width: w + 2 * 76, height: h + 38)
+        case .claude: return CGSize(width: w + 2 * 140, height: h + 60)
+        case .salud: return CGSize(width: w + 2 * 136, height: h + 58)
+        case .agente: return CGSize(width: w + 2 * 140, height: h + 64)
+        case .nivel: return CGSize(width: w + 2 * 96, height: h + 76)
         case nil: return CGSize(width: w + (alas ? 2 * 46 : 0) + (punto ? 2 * 14 : 0), height: h)
         }
     }
@@ -335,7 +342,7 @@ final class EstadoIsla {
     var reunionConBoton: Bool {
         switch actividad {
         case .evento(_, _, _, let enlace): return enlace != nil
-        case .claude, .salud: return true
+        case .claude, .salud, .agente: return true
         default: return false
         }
     }
@@ -363,7 +370,7 @@ final class Isla {
     private var vigia: Timer?
     let salud: Salud
 
-    static let expandida = CGSize(width: 600, height: 200)
+    static let expandida = CGSize(width: 680, height: 250)
 
     init(hud: EstadoHUD, niveles: Bool, salud: Salud) {
         self.hud = hud
@@ -380,7 +387,8 @@ final class Isla {
                           segundos: e.enlace == nil ? 7 : 20)
         }
         agentes.alAlertar = { [weak self] agente, alerta in
-            self?.mostrar(.salud(titulo: agente, detalle: alerta, grave: true), segundos: 8)
+            let caido = self?.agentes.agentes.first { $0.nombre == agente }?.estado == .caido
+            self?.mostrar(.agente(nombre: agente, alerta: alerta, caido: caido), segundos: 10)
         }
         claude.alNecesitar = { [weak self] s in
             self?.mostrar(.claude(sesion: s, necesita: true, duracion: 0), segundos: 12)
@@ -460,6 +468,7 @@ final class Isla {
         guard activa else { return }
         finActividad?.cancel()
         estado.expandida = false
+        estado.pestana = nil
         estado.actividad = .dictado
         estado.idActividad = UUID()
         estado.inicioActividad = Date()
@@ -490,13 +499,16 @@ final class Isla {
         ajustar()
     }
 
-    /// Barra de volumen o brillo. Mientras sigues presionando la tecla, solo se mueve la barra (sin volver a entrar).
+    /// Dial de volumen o brillo. Mientras sigues presionando la tecla, solo se mueve el dial (sin volver a entrar):
+    /// la actividad se reemplaza sin cambiar `idActividad`, que es lo que dispara la animación de entrada.
     func mostrarNivel(_ tipo: Niveles.Tipo, valor: Double, silencio: Bool) {
-        if case .nivel(let actual, _, _) = estado.actividad, actual == tipo, !estado.expandida {
-            estado.actividad = .nivel(tipo: tipo, valor: valor, silencio: silencio)
+        let nueva = EstadoIsla.Actividad.nivel(tipo: tipo, valor: valor, silencio: silencio,
+                                               salida: tipo == .volumen ? Audio.descripcionSalida() : nil)
+        if case .nivel(let actual, _, _, _) = estado.actividad, actual == tipo, !estado.expandida {
+            estado.actividad = nueva
             programarFin(1.6)
         } else {
-            mostrar(.nivel(tipo: tipo, valor: valor, silencio: silencio), segundos: 1.6)
+            mostrar(nueva, segundos: 1.6)
         }
     }
 
@@ -510,16 +522,30 @@ final class Isla {
     /// Abre el panel completo de Salud del Mac (ícono de la pestaña Mac o "Ver" de un aviso).
     func abrirSalud() {
         estado.expandida = false
+        estado.pestana = nil
         quitarActividad()
         salud.abrir()
     }
 
     func medirSalud() { salud.medirAhora() }
 
+    /// "Ver" del aviso de un agente remoto: abre la isla en la pestaña Agentes (con una lectura fresca).
+    func verAgentes() {
+        finActividad?.cancel()
+        colapso?.cancel()
+        estado.actividad = nil
+        estado.pestana = .agentes
+        estado.expandida = true
+        agentes.refrescar(forzar: true, avisar: false)
+        ajustar()
+        vigilarSalida()
+    }
+
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {
         if sesion?.id != "prueba" { SesionesClaude.abrir(sesion) }
         estado.expandida = false
+        estado.pestana = nil
         quitarActividad()
     }
 
@@ -539,6 +565,7 @@ final class Isla {
         Logger(subsystem: "app.dictado", category: "isla")
             .notice("unirse: \(enlace.host ?? enlace.scheme ?? "", privacy: .public) abrió=\(ok)")
         estado.expandida = false
+        estado.pestana = nil
         quitarActividad()
     }
 
@@ -561,6 +588,8 @@ final class Isla {
                     self.mostrar(.claude(sesion: prueba, necesita: true, duracion: 0), segundos: 6)
                 case "salud":
                     self.mostrar(.salud(titulo: "Disco casi lleno", detalle: "Quedan 7,9 GB libres", grave: true), segundos: 6)
+                case "agente":
+                    self.mostrar(.agente(nombre: "Agente de prueba", alerta: "informe-diario falló: sin conexión"), segundos: 8)
                 case "privacidad":
                     self.privacidad.microfono = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { self.privacidad.revisar() } }
@@ -638,6 +667,7 @@ final class Isla {
             MainActor.assumeIsolated {
                 guard let self, self.estado.expandida else { return }
                 self.estado.expandida = false
+                self.estado.pestana = nil
                 self.ajustar()
             }
         }

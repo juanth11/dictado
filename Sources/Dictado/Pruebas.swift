@@ -283,16 +283,24 @@ func hojaCaptura(_ destino: URL) -> Bool {
 }
 
 /// Render de la isla: reposo, abierta y sus actividades. `Dictado --vista-isla salida.png`
+/// `DICTADO_ESCENA=abierta` dibuja una sola escena (la imagen de portada del README); `DICTADO_ESTRES=1` agrega
+/// escenas con textos largos y mucho contenido para revisar que nada se corte.
 @MainActor
 func hojaIsla(_ destino: URL) -> Bool {
     let fondo = fondoDeMuestra()
+    let entorno = ProcessInfo.processInfo.environment
     let caratula = NSImage(size: NSSize(width: 300, height: 300))
     caratula.lockFocus()
     fondo.draw(in: NSRect(x: 0, y: 0, width: 300, height: 300), from: NSRect(x: 1500, y: 600, width: 900, height: 900),
                operation: .copy, fraction: 1)
     caratula.unlockFocus()
     let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome").map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path)) }
-    enum Escena { case compacta, abierta, abiertaAgenda, dictado, privacidad, cancion, evento, volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, abiertaMac }
+    enum Escena: String {
+        case compacta, abierta, abiertaAgentes, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento, volumen, brillo,
+             silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso
+        case estresAgentes, estresAgenda, estresMac, estresVacia, estresNivel, estresAgente, estresBrillo
+        var abierta: Bool { [.abierta, .abiertaAgentes, .abiertaAgenda, .abiertaMac, .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self) }
+    }
     func escena(_ tipo: Escena) -> some View {
         let estado = EstadoIsla()
         estado.notch = CGSize(width: 186, height: 32)
@@ -326,17 +334,20 @@ func hojaIsla(_ destino: URL) -> Bool {
         agenda.permitido = true
         let ahora = Date()
         agenda.eventos = [
-            .init(id: "1", titulo: "Revisión de contrato", inicio: ahora.addingTimeInterval(4 * 60),
+            .init(id: "1", titulo: "Revisión de contrato", inicio: ahora.addingTimeInterval(4 * 60 + 12),
                   fin: ahora.addingTimeInterval(49 * 60), color: Color(red: 0.35, green: 0.6, blue: 1.0),
                   enlace: URL(string: "https://meet.google.com/abc-defg-hij")),
             .init(id: "2", titulo: "Llamada con el equipo", inicio: ahora.addingTimeInterval(3 * 3600),
-                  fin: ahora.addingTimeInterval(3.5 * 3600), color: Color(red: 1.0, green: 0.55, blue: 0.3)),
+                  fin: ahora.addingTimeInterval(3.75 * 3600), color: Color(red: 1.0, green: 0.55, blue: 0.3)),
+            .init(id: "3", titulo: "Gimnasio", inicio: ahora.addingTimeInterval(5.5 * 3600),
+                  fin: ahora.addingTimeInterval(6.5 * 3600), color: Color(red: 0.45, green: 0.85, blue: 0.5)),
         ]
         let hud = EstadoHUD()
         hud.estilo = .prisma
         hud.fase = .escuchando
         hud.nivel = 0.75
         hud.texto = "Recordar enviar la propuesta al cliente"
+        let airpods = SalidaAudio(nombre: "AirPods Pro")
         switch tipo {
         case .compacta: break
         case .llamada:
@@ -346,23 +357,34 @@ func hojaIsla(_ destino: URL) -> Bool {
             privacidad.desde = Date().addingTimeInterval(-754)
         case .saludAviso:
             estado.actividad = .salud(titulo: "Disco casi lleno", detalle: "Quedan 7,9 GB libres · Limpieza puede recuperar 5,7 GB", grave: true)
+        case .agenteAviso:
+            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "informe-matutino falló: el servidor de correo no respondió")
         case .claudeNecesita:
             estado.actividad = .claude(sesion: claude.sesiones[0], necesita: true, duracion: 0)
         case .claudeTermino:
             var lista = claude.sesiones[1]
             lista.resumen = "Terminé el borrador del informe"
             estado.actividad = .claude(sesion: lista, necesita: false, duracion: 252)
+        case .abiertaAgentes:
+            estado.expandida = true
+            estado.pestana = .agentes
+            agentes.agentes = [ejemploAgenteConAlerta()]
+            claude.sesiones.removeFirst()
         case .abiertaAgenda:
             estado.expandida = true
-            claude.sesiones = []
+            estado.pestana = .agenda
             salud.discoLibre = 60e9
         case .abiertaMac:
             estado.expandida = true
-            claude.sesiones = []
-        case .abierta:
+            estado.pestana = .mac
+        case .abierta:  // portada del README: la llamada, Claude esperándote, el agente del servidor y la música
             estado.expandida = true
             privacidad.camara = true
             privacidad.nombre = "Google Chrome"
+            claude.sesiones[0] = .init(id: "a", pid: 1, nombre: "Rediseño del sitio web", carpeta: "proyectos", estado: .esperando,
+                                       espera: "Necesita tu permiso", desde: Date().addingTimeInterval(-40), contexto: 318_000,
+                                       actividad: "Terminal · npm run build")
+            claude.sesiones.remove(at: 1)
         case .dictado: estado.actividad = .dictado
         case .privacidad:
             musica.titulo = ""
@@ -371,39 +393,106 @@ func hojaIsla(_ destino: URL) -> Bool {
             privacidad.icono = chrome
             privacidad.nombre = "Google Chrome"
         case .cancion: estado.actividad = .cancion
-        case .evento: estado.actividad = .evento(titulo: "Revisión de contrato", inicio: Date().addingTimeInterval(299),
+        case .evento: estado.actividad = .evento(titulo: "Revisión de contrato", inicio: Date().addingTimeInterval(252),
                                                   color: Color(red: 0.35, green: 0.6, blue: 1.0),
                                                   enlace: URL(string: "https://meet.google.com/abc-defg-hij"))
-        case .volumen: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: false)
+        case .volumen: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: false, salida: airpods)
         case .brillo: estado.actividad = .nivel(tipo: .brillo, valor: 0.81, silencio: false)
-        case .silencio: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: true)
+        case .silencio: estado.actividad = .nivel(tipo: .volumen, valor: 0.62, silencio: true, salida: airpods)
         case .carga: estado.actividad = .carga(porcentaje: 87)
+        // Escenas de estrés: textos largos y mucho contenido.
+        case .estresAgentes:
+            estado.expandida = true
+            estado.pestana = .agentes
+            musica.titulo = "Una canción con un título larguísimo que no cabe en el reproductor"
+            musica.artista = "Un artista con un nombre igual de largo y varios invitados"
+            claude.sesiones[0] = .init(id: "a", pid: 1, nombre: "Migración de la base de datos de clientes y facturación del año pasado",
+                                       carpeta: "x", estado: .esperando, espera: "Tiene una pregunta",
+                                       desde: Date().addingTimeInterval(-90), contexto: 912_000,
+                                       actividad: "¿Borro las tablas temporales antes de migrar o prefieres revisarlas primero una por una?")
+            claude.sesiones.append(.init(id: "d", pid: 4, nombre: "Otra sesión que trabaja", carpeta: "x", estado: .trabajando, espera: "",
+                                         desde: Date().addingTimeInterval(-60), actividad: "Leyendo un archivo con un nombre muy largo.swift"))
+            agentes.agentes = [ejemploAgenteConAlerta(muchas: true), AgentesRemotos.Agente(
+                nombre: "Agente de respaldo", estado: .desconocido, actualizado: Date().addingTimeInterval(-300),
+                error: "No respondió en 20 s")]
+        case .estresAgenda:
+            estado.expandida = true
+            estado.pestana = .agenda
+            agenda.eventos = [
+                .init(id: "1", titulo: "Reunión de seguimiento trimestral con todo el equipo de producto y diseño", inicio: ahora.addingTimeInterval(-20 * 60),
+                      fin: ahora.addingTimeInterval(25 * 60), color: Color(red: 0.75, green: 0.45, blue: 1.0),
+                      enlace: URL(string: "https://zoom.us/j/123456789")),
+                .init(id: "2", titulo: "Encimada", inicio: ahora.addingTimeInterval(10 * 60),
+                      fin: ahora.addingTimeInterval(70 * 60), color: Color(red: 1.0, green: 0.55, blue: 0.3)),
+                .init(id: "3", titulo: "Almuerzo", inicio: ahora.addingTimeInterval(2 * 3600),
+                      fin: ahora.addingTimeInterval(3 * 3600), color: Color(red: 0.45, green: 0.85, blue: 0.5)),
+                .init(id: "4", titulo: "Mañana temprano", inicio: ahora.addingTimeInterval(20 * 3600),
+                      fin: ahora.addingTimeInterval(21 * 3600), color: Color(red: 0.35, green: 0.6, blue: 1.0)),
+            ]
+        case .estresMac:
+            estado.expandida = true
+            estado.pestana = .mac
+            salud.cpu = 0.99
+            salud.gpu = 0.93
+            salud.presion = 4
+            salud.discoLibre = 120e9
+        case .estresVacia:
+            estado.expandida = true
+            estado.pestana = .agentes
+            claude.sesiones = []
+            agentes.agentes = []
+            musica.titulo = ""
+        case .estresNivel:
+            estado.actividad = .nivel(tipo: .volumen, valor: 1, silencio: false,
+                                      salida: SalidaAudio(nombre: "Altavoces externos de la sala de reuniones del tercer piso"))
+        case .estresBrillo: estado.actividad = .nivel(tipo: .brillo, valor: 0.06, silencio: false)
+        case .estresAgente:
+            estado.actividad = .agente(nombre: "Un agente con un nombre bastante largo para la isla",
+                                       alerta: "El proceso nocturno falló tres veces seguidas: el disco del servidor está lleno y no pudo guardar el informe",
+                                       caido: true)
         }
+        let alto: CGFloat = tipo.abierta ? 280 : 168
+        let ancho: CGFloat = tipo.abierta ? 720 : 700
         return ZStack(alignment: .top) {
-            Image(nsImage: fondo).resizable().scaledToFill().frame(width: 700, height: 210, alignment: .top).clipped()
+            Image(nsImage: fondo).resizable().scaledToFill().frame(width: ancho, height: alto, alignment: .top).clipped()
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)  // barra de menú
             UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black).frame(width: 186, height: 32)
             VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud, privacidad: privacidad, claude: claude,
                       agentes: agentes, salud: salud, control: nil)
                 .frame(width: Isla.expandida.width, height: Isla.expandida.height)
+                .frame(height: alto, alignment: .top)
         }
-        .frame(width: 700, height: 210)
+        .frame(width: ancho, height: alto)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
-    let hoja = VStack(spacing: 14) {
-        HStack(spacing: 14) { escena(.compacta); escena(.dictado) }
-        HStack(spacing: 14) { escena(.privacidad); escena(.cancion) }
-        HStack(spacing: 14) { escena(.evento); escena(.carga) }
-        HStack(spacing: 14) { escena(.volumen); escena(.brillo) }
-        HStack(spacing: 14) { escena(.silencio); escena(.compacta) }
-        HStack(spacing: 14) { escena(.claudeNecesita); escena(.claudeTermino) }
-        HStack(spacing: 14) { escena(.llamada); escena(.saludAviso) }
-        escena(.abiertaAgenda)
-        escena(.abiertaMac)
-        escena(.abierta)
+    let hoja: AnyView
+    if let sola = entorno["DICTADO_ESCENA"].flatMap(Escena.init(rawValue:)) {
+        hoja = AnyView(escena(sola))
+    } else {
+        hoja = AnyView(VStack(spacing: 14) {
+            HStack(spacing: 14) { escena(.compacta); escena(.dictado) }
+            HStack(spacing: 14) { escena(.volumen); escena(.brillo) }
+            HStack(spacing: 14) { escena(.silencio); escena(.agenteAviso) }
+            HStack(spacing: 14) { escena(.evento); escena(.cancion) }
+            HStack(spacing: 14) { escena(.claudeNecesita); escena(.claudeTermino) }
+            HStack(spacing: 14) { escena(.saludAviso); escena(.carga) }
+            HStack(spacing: 14) { escena(.privacidad); escena(.llamada) }
+            escena(.abierta)
+            escena(.abiertaAgentes)
+            escena(.abiertaAgenda)
+            escena(.abiertaMac)
+            if entorno["DICTADO_ESTRES"] != nil {
+                HStack(spacing: 14) { escena(.estresNivel); escena(.estresAgente) }
+                HStack(spacing: 14) { escena(.estresBrillo); escena(.compacta) }
+                escena(.estresAgentes)
+                escena(.estresAgenda)
+                escena(.estresMac)
+                escena(.estresVacia)
+            }
+        }
+        .padding(14)
+        .background(Color(white: 0.08)))
     }
-    .padding(14)
-    .background(Color(white: 0.08))
     let renderer = ImageRenderer(content: hoja)
     renderer.scale = 2
     guard let cg = renderer.cgImage,
@@ -555,6 +644,29 @@ func fondoDeMuestra() -> NSImage {
     return imagen
 }
 
+/// Un agente remoto con una alerta y una tarea fallida (para los renders). `muchas`: varias alertas y tareas.
+@MainActor
+func ejemploAgenteConAlerta(muchas: Bool = false) -> AgentesRemotos.Agente {
+    let hoy = Calendar.current.startOfDay(for: Date())
+    func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
+    var tareas: [AgentesRemotos.Tarea] = [
+        .init(nombre: "informe-matutino", estado: "error", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+        .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
+        .init(nombre: "copia-de-seguridad", estado: "corriendo", ultima: Date().addingTimeInterval(-120), proxima: nil, detalle: "cada 6 horas"),
+        .init(nombre: "radar-contenidos", estado: "pausada", ultima: h(-700), proxima: nil, detalle: ""),
+    ]
+    var alertas = ["informe-matutino falló: el servidor de correo no respondió"]
+    if muchas {
+        alertas += ["El disco del servidor está al 94 % y la copia de seguridad puede fallar esta noche si no se libera espacio",
+                    "Certificado vence en 5 días"]
+        tareas += (1...4).map { .init(nombre: "tarea-programada-con-nombre-largo-\($0)", estado: "ok", ultima: h(Double($0)),
+                                      proxima: h(Double(30 + $0)), detalle: "") }
+    }
+    return AgentesRemotos.Agente(nombre: "Agente del servidor", estado: .alerta,
+                                 resumen: "\(tareas.count) tareas · 1 con error", alertas: alertas, tareas: tareas,
+                                 actualizado: Date().addingTimeInterval(-180))
+}
+
 /// Datos de ejemplo de agentes remotos para los renders.
 @MainActor
 func ejemploAgentes() -> AgentesRemotos {
@@ -562,7 +674,7 @@ func ejemploAgentes() -> AgentesRemotos {
     let hoy = Calendar.current.startOfDay(for: Date())
     func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
     a.agentes = [AgentesRemotos.Agente(
-        nombre: "Agente del servidor", estado: .ok, resumen: "8 tareas activas · todo bien", alertas: [],
+        nombre: "Agente del servidor", estado: .ok, resumen: "4 tareas programadas · todo bien", alertas: [],
         tareas: [
             .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
             .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
