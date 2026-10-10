@@ -329,7 +329,7 @@ final class EstadoIsla {
         case .claude: return CGSize(width: w + 2 * 140, height: h + 58)
         case .salud: return CGSize(width: w + 2 * 136, height: h + 50)
         case .agente: return CGSize(width: w + 2 * 140, height: h + 50)
-        case .nivel: return CGSize(width: w + 2 * 92, height: h + 44)
+        case .nivel: return CGSize(width: w + 2 * 124, height: h + 44)
         case nil: return CGSize(width: w + (alas ? 2 * 46 : 0) + (punto ? 2 * 14 : 0), height: h)
         }
     }

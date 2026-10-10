@@ -225,10 +225,11 @@ private struct PuntoPrivacidad: View {
     }
 }
 
-/// Volumen o brillo (reemplaza el cuadro de macOS): dial con anillo de marcas que se enciende, resplandor de color
-/// (volumen azul y violeta, brillo ámbar), número grande y fino y, en el volumen, a dónde va el sonido. En silencio
-/// el resplandor se apaga y quedan tenues las marcas del volumen guardado. Mientras mantienes la tecla, `Isla`
-/// reemplaza la actividad sin cambiar su id: el dial se mueve sin volver a entrar.
+/// Volumen o brillo (reemplaza el cuadro de macOS): a la izquierda la cifra en su tono, en el centro la cuña de nivel
+/// (rayitas que suben de izquierda a derecha sobre una cuadrícula tenue, encendidas hasta el nivel, con la luz naciendo
+/// debajo y un marcador blanco) y a la derecha a dónde va el sonido. En silencio la cuña se apaga y queda marcado tenue
+/// el volumen guardado. Mientras mantienes la tecla, `Isla` reemplaza la actividad sin cambiar su id: la cuña se
+/// enciende o apaga sin volver a entrar.
 private struct BarraNivel: View {
     let estado: EstadoIsla
     let tipo: Niveles.Tipo
@@ -243,53 +244,131 @@ private struct BarraNivel: View {
         }
     }
 
-    private var tono: Tono { silencio ? .neutro : (tipo == .brillo ? .brillo : .volumen) }
-    private var colores: [Color] { silencio ? Paleta.silencio : tono.gradiente }
+    private var tono: Tono { tipo == .brillo ? .brillo : .volumen }
     private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: estado.notch.height)
-            HStack(spacing: 12) {
-                Dial(lado: 36, valor: silencio ? 0 : valor, colores: colores, marcas: 30, anillo: 3.5,
-                     brillo: silencio ? 0.25 : 0.45 + 0.4 * valor, fantasma: silencio ? valor : nil) {
-                    Image(systemName: simbolo, variableValue: tipo == .volumen ? max(valor, 0.01) : 1)
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(silencio ? Self.rojoMudo : .white)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Rotulo(tipo == .brillo ? "Brillo" : (silencio ? "Silencio" : "Volumen"),
-                           color: silencio ? Self.rojoMudo.opacity(0.9) : tono.claro)
-                    Group {
-                        if tipo == .volumen, let salida {
-                            Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
-                        } else if tipo == .brillo {
-                            Label { Text("Pantalla") } icon: { Image(systemName: "display") }
-                        }
+            HStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 4) {
+                        Image(systemName: simbolo, variableValue: tipo == .volumen ? max(valor, 0.01) : 1)
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .contentTransition(.symbolEffect(.replace))
+                        Rotulo(tipo == .brillo ? "Brillo" : (silencio ? "Silencio" : "Volumen"), color: silencio ? Self.rojoMudo : tono.claro)
                     }
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(silencio ? Halo.texto3 : Halo.texto2)
-                    .labelStyle(EtiquetaJunta())
-                    .lineLimit(1)
+                    .foregroundStyle(silencio ? Self.rojoMudo : tono.claro)
+                    if silencio {
+                        Text("Mudo").font(.system(size: 22, weight: .light)).foregroundStyle(Halo.texto2).fixedSize()
+                    } else {
+                        NumeroFino(texto: "\(Int((valor * 100).rounded()))", unidad: "%", tamano: 26, peso: .light,
+                                   color: tono.claro, valor: valor)
+                            .shadow(color: tono.base.opacity(0.6), radius: 6)
+                    }
                 }
-                .layoutPriority(-1)
-                Spacer(minLength: 6)
-                if silencio {
-                    Text("Mudo").font(.system(size: 24, weight: .thin)).foregroundStyle(Halo.texto2).fixedSize()
-                } else {
-                    NumeroFino(texto: "\(Int((valor * 100).rounded()))", unidad: "%", tamano: 30, valor: valor)
+                .frame(width: 82, alignment: .leading)
+                Cuna(valor: valor, tono: tono, apagada: silencio)
+                    .frame(height: 34)
+                Group {
+                    if tipo == .volumen, let salida {
+                        Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
+                    } else if tipo == .brillo {
+                        Label { Text("Pantalla") } icon: { Image(systemName: "display") }
+                    }
                 }
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
+                .labelStyle(EtiquetaJunta())
+                .lineLimit(1)
+                .frame(maxWidth: 104, alignment: .trailing)
             }
             .padding(.leading, 24)
-            .padding(.trailing, 26)
+            .padding(.trailing, 24)
             .frame(maxHeight: .infinity)
         }
-        .background {  // la isla toma el color del nivel desde el borde; más fuerte cuanto más alto
-            if !silencio { LuzBorde(tono: tono, fuerza: 0.18 + 0.3 * valor, alto: 0.95, centro: 0.3, ancho: 0.8) }
+        .background {  // la isla toma el tono del nivel desde el borde; más fuerte cuanto más alto
+            if !silencio { LuzBorde(tono: tono, fuerza: 0.1 + 0.2 * valor, alto: 0.9, centro: 0.5, ancho: 0.8) }
         }
-        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: valor)
-        .animation(.spring(response: 0.28, dampingFraction: 0.9), value: silencio)
+        .animation(Halo.cambio, value: valor)
+        .animation(Halo.cambio, value: silencio)
+    }
+}
+
+/// Cuña de nivel: rayitas verticales finas cuya altura sube de izquierda a derecha (la forma del volumen) sobre una
+/// cuadrícula tenue. Las rayitas hasta el nivel se encienden del tono base al claro y brillan; la última es blanca;
+/// la luz nace debajo de lo encendido y un marcador blanco señala el nivel. Apagada (silencio), las rayitas hasta el
+/// nivel guardado quedan apenas más claras.
+private struct Cuna: View {
+    let valor: Double
+    let tono: Tono
+    var apagada = false
+    var cuantas = 44
+
+    var body: some View {
+        let v = max(0, min(1, valor))
+        let encendidas = Int((v * Double(cuantas)).rounded())
+        GeometryReader { g in
+            let w = g.size.width
+            let h = g.size.height - 7  // abajo queda el marcador
+            let paso = w / CGFloat(cuantas)
+            ZStack(alignment: .topLeading) {
+                Path { p in  // cuadrícula: una vertical cada 4 rayitas, cuatro horizontales
+                    for i in stride(from: 0, through: cuantas, by: 4) {
+                        let x = paso * CGFloat(i)
+                        p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: h))
+                    }
+                    for k in 0...3 {
+                        let y = h * CGFloat(k) / 3
+                        p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: w, y: y))
+                    }
+                }
+                .stroke(.white.opacity(0.05), lineWidth: 0.5)
+                Path { p in  // la forma completa de la cuña, tenue
+                    p.move(to: CGPoint(x: 0, y: h)); p.addLine(to: CGPoint(x: w, y: h * 0.06)); p.addLine(to: CGPoint(x: w, y: h))
+                }
+                .stroke(.white.opacity(0.12), lineWidth: 0.6)
+                if !apagada && v > 0 {  // la luz nace debajo de lo encendido
+                    Ellipse().fill(tono.base)
+                        .frame(width: max(24, w * v * 1.15), height: h * 0.9)
+                        .position(x: w * v * 0.55, y: h + 3)
+                        .blur(radius: 11)
+                        .opacity(0.3 + 0.35 * v)
+                }
+                ForEach(0..<cuantas, id: \.self) { i in
+                    let t = Double(i) / Double(cuantas - 1)
+                    let alto = max(2.5, h * CGFloat(0.1 + 0.84 * t))
+                    let prendida = i < encendidas && !apagada
+                    let punta = prendida && i == encendidas - 1
+                    let c = tono.base.mix(with: tono.claro, by: t)
+                    Capsule()
+                        .fill(prendida ? (punta ? Color.white : c) : Color.white.opacity(apagada && i < encendidas ? 0.3 : 0.11))
+                        .frame(width: 1.3, height: alto)
+                        .shadow(color: prendida ? c.opacity(0.85) : .clear, radius: punta ? 3.5 : 1.8)
+                        .position(x: paso * (CGFloat(i) + 0.5), y: h - alto / 2)
+                }
+                if encendidas > 0 {
+                    Triangulo()
+                        .fill(apagada ? Color.white.opacity(0.4) : .white)
+                        .frame(width: 6, height: 4.5)
+                        .shadow(color: apagada ? .clear : tono.claro, radius: 3)
+                        .position(x: paso * (CGFloat(encendidas) - 0.5), y: h + 4.5)
+                }
+            }
+        }
+        .animation(Halo.cambio, value: encendidas)
+    }
+}
+
+/// Triángulo con la punta hacia arriba (el marcador de la cuña).
+private struct Triangulo: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.midX, y: r.minY))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        p.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        p.closeSubpath()
+        return p
     }
 }
 

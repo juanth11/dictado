@@ -50,7 +50,8 @@ Cada tono tiene `base` y `claro`. Las marcas, el líquido y la luz van del uno a
 | Pieza | Qué es | Dónde |
 |---|---|---|
 | `LuzBorde` | Luz del tono que sube desde el borde de abajo (estática) | Avisos de la isla, isla abierta, vista previa del portapapeles, cabecera de Salud |
-| `Dial` | Anillo de marcas que se enciende, disco negro, resplandor y destello en el valor | Volumen y brillo, Mac, avisos de Salud y de agentes, fila de un agente |
+| `Dial` | Anillo de marcas que se enciende, disco negro, resplandor y destello en el valor | Mac, avisos de Salud y de agentes, fila de un agente |
+| `Cuna` | Rayitas que suben de izquierda a derecha sobre una cuadrícula tenue, encendidas hasta el nivel, con la luz debajo y un marcador blanco | Volumen y brillo |
 | `Regla` | Las mismas marcas en línea | Niveles y medidas pequeñas |
 | `Liquido` | Cápsula de progreso que brilla, con reflejo e ícono o texto | El día de un agente, espacio liberado |
 | `Cifra`, `NumeroFino` | Cifra con su unidad en versalitas | Todo dato principal |
