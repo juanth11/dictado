@@ -300,8 +300,8 @@ final class EstadoIsla {
         case nivel(tipo: Niveles.Tipo, valor: Double, silencio: Bool, salida: SalidaAudio? = nil)
         case claude(sesion: SesionesClaude.Sesion, necesita: Bool, duracion: TimeInterval)
         case salud(titulo: String, detalle: String, grave: Bool)
-        /// Un agente remoto (servidor) avisa de un problema; "Ver" abre la pestaña Agentes.
-        case agente(nombre: String, alerta: String, caido: Bool = false)
+        /// Un agente remoto (servidor) avisa de un problema; "Ver" abre su detalle en la pestaña Agentes.
+        case agente(nombre: String, alerta: String, caido: Bool)
     }
 
     /// Pestañas de la isla abierta. nil = la que más importa ahora (ver `Expandida.porDefecto`).
@@ -311,6 +311,7 @@ final class EstadoIsla {
     var pestana: Pestana?
     var notch = CGSize(width: 200, height: 32)
     var actividad: Actividad?
+    var agenteAbierto: String?   // agente de fuera del Mac con su detalle abierto en la pestaña Agentes
     var idActividad = UUID()     // cambia con cada actividad: dispara la animación de entrada
     var inicioActividad = Date()
 
@@ -387,8 +388,9 @@ final class Isla {
                           segundos: e.enlace == nil ? 7 : 20)
         }
         agentes.alAlertar = { [weak self] agente, alerta in
-            let caido = self?.agentes.agentes.first { $0.nombre == agente }?.estado == .caido
-            self?.mostrar(.agente(nombre: agente, alerta: alerta, caido: caido), segundos: 10)
+            guard let self else { return }
+            let caido = self.agentes.agentes.first { $0.nombre == agente }?.estado == .caido
+            self.mostrar(.agente(nombre: agente, alerta: alerta, caido: caido), segundos: 10)
         }
         claude.alNecesitar = { [weak self] s in
             self?.mostrar(.claude(sesion: s, necesita: true, duracion: 0), segundos: 12)
@@ -469,6 +471,7 @@ final class Isla {
         finActividad?.cancel()
         estado.expandida = false
         estado.pestana = nil
+        estado.agenteAbierto = nil
         estado.actividad = .dictado
         estado.idActividad = UUID()
         estado.inicioActividad = Date()
@@ -523,22 +526,20 @@ final class Isla {
     func abrirSalud() {
         estado.expandida = false
         estado.pestana = nil
+        estado.agenteAbierto = nil
         quitarActividad()
         salud.abrir()
     }
 
     func medirSalud() { salud.medirAhora() }
 
-    /// "Ver" del aviso de un agente remoto: abre la isla en la pestaña Agentes (con una lectura fresca).
-    func verAgentes() {
+    /// Desde el aviso de un agente ("Ver"): abre la isla en la pestaña Agentes con su detalle.
+    func verAgente(_ nombre: String) {
         finActividad?.cancel()
-        colapso?.cancel()
-        estado.actividad = nil
+        quitarActividad()
         estado.pestana = .agentes
-        estado.expandida = true
-        agentes.refrescar(forzar: true, avisar: false)
-        ajustar()
-        vigilarSalida()
+        estado.agenteAbierto = nombre
+        expandir()
     }
 
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
@@ -546,6 +547,7 @@ final class Isla {
         if sesion?.id != "prueba" { SesionesClaude.abrir(sesion) }
         estado.expandida = false
         estado.pestana = nil
+        estado.agenteAbierto = nil
         quitarActividad()
     }
 
@@ -566,6 +568,7 @@ final class Isla {
             .notice("unirse: \(enlace.host ?? enlace.scheme ?? "", privacy: .public) abrió=\(ok)")
         estado.expandida = false
         estado.pestana = nil
+        estado.agenteAbierto = nil
         quitarActividad()
     }
 
@@ -589,7 +592,8 @@ final class Isla {
                 case "salud":
                     self.mostrar(.salud(titulo: "Disco casi lleno", detalle: "Quedan 7,9 GB libres", grave: true), segundos: 6)
                 case "agente":
-                    self.mostrar(.agente(nombre: "Agente de prueba", alerta: "informe-diario falló: sin conexión"), segundos: 8)
+                    self.mostrar(.agente(nombre: "Prueba de agente", alerta: "informe-diario falló: sin conexión con el correo",
+                                         caido: false), segundos: 6)
                 case "privacidad":
                     self.privacidad.microfono = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { self.privacidad.revisar() } }
@@ -668,6 +672,7 @@ final class Isla {
                 guard let self, self.estado.expandida else { return }
                 self.estado.expandida = false
                 self.estado.pestana = nil
+                self.estado.agenteAbierto = nil
                 self.ajustar()
             }
         }

@@ -286,7 +286,7 @@ func hojaCaptura(_ destino: URL) -> Bool {
 /// `DICTADO_ESCENA=abierta` dibuja una sola escena (la imagen de portada del README); `DICTADO_ESTRES=1` agrega
 /// escenas con textos largos y mucho contenido para revisar que nada se corte.
 @MainActor
-func hojaIsla(_ destino: URL) -> Bool {
+func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     let fondo = fondoDeMuestra()
     let entorno = ProcessInfo.processInfo.environment
     let caratula = NSImage(size: NSSize(width: 300, height: 300))
@@ -296,10 +296,14 @@ func hojaIsla(_ destino: URL) -> Bool {
     caratula.unlockFocus()
     let chrome = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.google.Chrome").map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path)) }
     enum Escena: String {
-        case compacta, abierta, abiertaAgentes, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento, volumen, brillo,
-             silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso
+        case compacta, abierta, abiertaAgentes, abiertaAgenteAlerta, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento,
+             volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso, agenteCaido,
+             agenteDetalle, agenteDetalleAlerta
         case estresAgentes, estresAgenda, estresMac, estresVacia, estresNivel, estresAgente, estresBrillo
-        var abierta: Bool { [.abierta, .abiertaAgentes, .abiertaAgenda, .abiertaMac, .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self) }
+        var abierta: Bool {
+            [.abierta, .abiertaAgentes, .abiertaAgenteAlerta, .abiertaAgenda, .abiertaMac, .agenteDetalle, .agenteDetalleAlerta,
+             .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self)
+        }
     }
     func escena(_ tipo: Escena) -> some View {
         let estado = EstadoIsla()
@@ -358,7 +362,7 @@ func hojaIsla(_ destino: URL) -> Bool {
         case .saludAviso:
             estado.actividad = .salud(titulo: "Disco casi lleno", detalle: "Quedan 7,9 GB libres · Limpieza puede recuperar 5,7 GB", grave: true)
         case .agenteAviso:
-            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "informe-matutino falló: el servidor de correo no respondió")
+            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "resumen-finanzas falló: el banco no respondió", caido: false)
         case .claudeNecesita:
             estado.actividad = .claude(sesion: claude.sesiones[0], necesita: true, duracion: 0)
         case .claudeTermino:
@@ -368,7 +372,10 @@ func hojaIsla(_ destino: URL) -> Bool {
         case .abiertaAgentes:
             estado.expandida = true
             estado.pestana = .agentes
-            agentes.agentes = [ejemploAgenteConAlerta()]
+        case .abiertaAgenteAlerta:
+            estado.expandida = true
+            estado.pestana = .agentes
+            agentes.agentes = ejemploAgentes(alerta: true).agentes
             claude.sesiones.removeFirst()
         case .abiertaAgenda:
             estado.expandida = true
@@ -377,6 +384,15 @@ func hojaIsla(_ destino: URL) -> Bool {
         case .abiertaMac:
             estado.expandida = true
             estado.pestana = .mac
+        case .agenteDetalle:
+            estado.expandida = true
+            estado.agenteAbierto = agentes.agentes[0].nombre
+        case .agenteDetalleAlerta:
+            estado.expandida = true
+            agentes.agentes = ejemploAgentes(alerta: true).agentes
+            estado.agenteAbierto = agentes.agentes[0].nombre
+        case .agenteCaido:
+            estado.actividad = .agente(nombre: "Agente del servidor", alerta: "El servidor no responde por SSH", caido: true)
         case .abierta:  // portada del README: la llamada, Claude esperándote, el agente del servidor y la música
             estado.expandida = true
             privacidad.camara = true
@@ -412,7 +428,12 @@ func hojaIsla(_ destino: URL) -> Bool {
                                        actividad: "¿Borro las tablas temporales antes de migrar o prefieres revisarlas primero una por una?")
             claude.sesiones.append(.init(id: "d", pid: 4, nombre: "Otra sesión que trabaja", carpeta: "x", estado: .trabajando, espera: "",
                                          desde: Date().addingTimeInterval(-60), actividad: "Leyendo un archivo con un nombre muy largo.swift"))
-            agentes.agentes = [ejemploAgenteConAlerta(muchas: true), AgentesRemotos.Agente(
+            var conAlertas = ejemploAgentes(alerta: true).agentes[0]
+            conAlertas.alertas += ["El disco del servidor está al 94 % y la copia de seguridad puede fallar esta noche si no se libera espacio",
+                                   "Certificado vence en 5 días"]
+            conAlertas.tareas += (1...3).map { .init(nombre: "tarea-programada-con-nombre-largo-\($0)", estado: "ok", ultima: nil,
+                                                     proxima: Date().addingTimeInterval(Double($0) * 86_400), detalle: "") }
+            agentes.agentes = [conAlertas, AgentesRemotos.Agente(
                 nombre: "Agente de respaldo", estado: .desconocido, actualizado: Date().addingTimeInterval(-300),
                 error: "No respondió en 20 s")]
         case .estresAgenda:
@@ -466,24 +487,33 @@ func hojaIsla(_ destino: URL) -> Bool {
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
     let hoja: AnyView
-    if let sola = entorno["DICTADO_ESCENA"].flatMap(Escena.init(rawValue:)) {
+    if soloAgentes {  // `Dictado --vista-agentes`: avisos, la pestaña Agentes y el detalle de un agente
+        hoja = AnyView(VStack(spacing: 14) {
+            HStack(spacing: 14) { escena(.agenteAviso); escena(.agenteCaido) }
+            HStack(spacing: 14) { escena(.abiertaAgentes); escena(.abiertaAgenteAlerta) }
+            HStack(spacing: 14) { escena(.agenteDetalle); escena(.agenteDetalleAlerta) }
+        }
+        .padding(14)
+        .background(Color(white: 0.08)))
+    } else if let sola = entorno["DICTADO_ESCENA"].flatMap(Escena.init(rawValue:)) {
         hoja = AnyView(escena(sola))
     } else {
         hoja = AnyView(VStack(spacing: 14) {
             HStack(spacing: 14) { escena(.compacta); escena(.dictado) }
             HStack(spacing: 14) { escena(.volumen); escena(.brillo) }
-            HStack(spacing: 14) { escena(.silencio); escena(.agenteAviso) }
+            HStack(spacing: 14) { escena(.silencio); escena(.carga) }
             HStack(spacing: 14) { escena(.evento); escena(.cancion) }
             HStack(spacing: 14) { escena(.claudeNecesita); escena(.claudeTermino) }
-            HStack(spacing: 14) { escena(.saludAviso); escena(.carga) }
-            HStack(spacing: 14) { escena(.privacidad); escena(.llamada) }
+            HStack(spacing: 14) { escena(.agenteAviso); escena(.agenteCaido) }
+            HStack(spacing: 14) { escena(.saludAviso); escena(.llamada) }
             escena(.abierta)
-            escena(.abiertaAgentes)
+            escena(.abiertaAgenteAlerta)
+            escena(.agenteDetalle)
             escena(.abiertaAgenda)
             escena(.abiertaMac)
             if entorno["DICTADO_ESTRES"] != nil {
                 HStack(spacing: 14) { escena(.estresNivel); escena(.estresAgente) }
-                HStack(spacing: 14) { escena(.estresBrillo); escena(.compacta) }
+                HStack(spacing: 14) { escena(.estresBrillo); escena(.privacidad) }
                 escena(.estresAgentes)
                 escena(.estresAgenda)
                 escena(.estresMac)
@@ -644,43 +674,30 @@ func fondoDeMuestra() -> NSImage {
     return imagen
 }
 
-/// Un agente remoto con una alerta y una tarea fallida (para los renders). `muchas`: varias alertas y tareas.
+/// Datos de ejemplo de agentes remotos para los renders. `alerta`: una tarea falló.
 @MainActor
-func ejemploAgenteConAlerta(muchas: Bool = false) -> AgentesRemotos.Agente {
-    let hoy = Calendar.current.startOfDay(for: Date())
-    func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
-    var tareas: [AgentesRemotos.Tarea] = [
-        .init(nombre: "informe-matutino", estado: "error", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
-        .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
-        .init(nombre: "copia-de-seguridad", estado: "corriendo", ultima: Date().addingTimeInterval(-120), proxima: nil, detalle: "cada 6 horas"),
-        .init(nombre: "radar-contenidos", estado: "pausada", ultima: h(-700), proxima: nil, detalle: ""),
-    ]
-    var alertas = ["informe-matutino falló: el servidor de correo no respondió"]
-    if muchas {
-        alertas += ["El disco del servidor está al 94 % y la copia de seguridad puede fallar esta noche si no se libera espacio",
-                    "Certificado vence en 5 días"]
-        tareas += (1...4).map { .init(nombre: "tarea-programada-con-nombre-largo-\($0)", estado: "ok", ultima: h(Double($0)),
-                                      proxima: h(Double(30 + $0)), detalle: "") }
-    }
-    return AgentesRemotos.Agente(nombre: "Agente del servidor", estado: .alerta,
-                                 resumen: "\(tareas.count) tareas · 1 con error", alertas: alertas, tareas: tareas,
-                                 actualizado: Date().addingTimeInterval(-180))
-}
-
-/// Datos de ejemplo de agentes remotos para los renders.
-@MainActor
-func ejemploAgentes() -> AgentesRemotos {
+func ejemploAgentes(alerta: Bool = false) -> AgentesRemotos {
     let a = AgentesRemotos(vivo: false)
-    let hoy = Calendar.current.startOfDay(for: Date())
+    let ahora = Date()
+    let hoy = Calendar.current.startOfDay(for: ahora)
     func h(_ horas: Double) -> Date { hoy.addingTimeInterval(horas * 3600) }
+    let enUnRato = min(ahora.addingTimeInterval(5400), h(23.8))   // algo que falta hoy
     a.agentes = [AgentesRemotos.Agente(
-        nombre: "Agente del servidor", estado: .ok, resumen: "4 tareas programadas · todo bien", alertas: [],
+        nombre: "Agente del servidor", estado: alerta ? .alerta : .ok,
+        resumen: alerta ? "6 tareas activas · 1 con error" : "6 tareas activas · todo bien",
+        alertas: alerta ? ["resumen-finanzas falló: el banco no respondió"] : [],
         tareas: [
-            .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+            .init(nombre: "copia-nocturna", estado: "ok", ultima: h(2), proxima: h(26), detalle: "todos los días a las 2"),
             .init(nombre: "procesar-ideas", estado: "ok", ultima: h(3.5), proxima: h(27.5), detalle: "todos los días a las 3:30"),
-            .init(nombre: "revision-semanal", estado: "corriendo", ultima: h(10), proxima: nil, detalle: "lunes 10:00"),
+            .init(nombre: "resumen-finanzas", estado: alerta ? "error" : "ok", ultima: h(7), proxima: h(31),
+                  detalle: "todos los días a las 7"),
+            .init(nombre: "informe-matutino", estado: "ok", ultima: h(8), proxima: h(32), detalle: "todos los días a las 8"),
+            .init(nombre: "revisar-correo", estado: "ok", ultima: enUnRato.addingTimeInterval(-86_400), proxima: enUnRato,
+                  detalle: "todos los días"),
+            .init(nombre: "revision-semanal", estado: "corriendo", ultima: ahora.addingTimeInterval(-120), proxima: nil,
+                  detalle: "lunes 10:00"),
             .init(nombre: "radar-contenidos", estado: "pausada", ultima: h(-700), proxima: nil, detalle: ""),
         ],
-        actualizado: Date())]
+        actualizado: ahora)]
     return a
 }

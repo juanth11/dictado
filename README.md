@@ -44,8 +44,8 @@ La isla habla un mismo idioma visual: diales con un anillo de marcas finas que s
 - **Llamadas:** cuando una app usa el micrófono o la cámara, la isla muestra el ícono de la app, un cronómetro verde y el punto verde (cámara) o naranja (micrófono), como en el iPhone.
 - **Agentes:** en una sola pestaña, tus sesiones de Claude Code y tus [agentes remotos](#agentes-remotos), primero lo que necesita atención.
   - Por cada sesión de Claude: qué está haciendo ("Editando App.swift · 4 min"), qué te pide (permiso o pregunta, resaltado en naranja) y el contexto del chat. El clic abre justo esa sesión. Arriba, los tokens del día por hora.
-  - Por cada agente remoto: su estado de un vistazo (anillo verde, ámbar o rojo), su resumen, las alertas destacadas y sus tareas programadas con "hace 2 h" y la próxima ejecución.
-  - Avisos: cuando una sesión te necesita o termina, y cuando un agente remoto tiene una alerta nueva (con **Ver**, que abre la isla en esta pestaña).
+  - Por cada agente remoto: su estado de un vistazo (anillo verde, ámbar o rojo), su resumen, las alertas destacadas y sus tareas programadas con "hace 2 h" y la próxima ejecución. Al tocarlo se abre su día: una línea de medianoche a medianoche con lo que ya corrió y lo que falta, y las tareas que importan (la que falló, la que corre, la última y la próxima).
+  - Avisos: cuando una sesión te necesita o termina, y cuando un agente remoto tiene una alerta nueva (con **Ver**, que abre el día de ese agente).
 
   De Claude se lee `~/.claude` en solo lectura.
 - **Mac:** cuatro diales (procesador, memoria, gráficos y disco) cuyo resplandor sube con la gravedad, el titular del diagnóstico y el ícono ↗ que abre Salud del Mac.
@@ -181,7 +181,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `Captura.swift` | Panel de capturas y OCR |
 | `Isla.swift`, `VistaIsla.swift` | La isla del notch (música, agenda, llamadas, actividades, pestañas Agentes, Agenda y Mac) |
 | `DialesIsla.swift` | Lenguaje visual de la isla: diales con marcas finas, resplandores, números finos y de puntos |
-| `Claude.swift`, `Agentes.swift` | Sesiones de Claude Code (solo lectura) y agentes remotos (lector del JSON que imprime tu comando) |
+| `Claude.swift`, `Agentes.swift`, `VistaAgentes.swift` | Sesiones de Claude Code (solo lectura), agentes remotos (lector del JSON que imprime tu comando) y el detalle del día de cada agente |
 | `Privacidad.swift`, `Niveles.swift` | Cámara y micrófono en uso; volumen y brillo |
 | `Salud.swift`, `VistaSalud.swift`, `Papelera.swift`, `ICloud.swift` | Medidor, escáner de limpieza, bitácora para deshacer, "Liberar ya" y descargas de iCloud |
 | `HUD.swift`, `Estilos*.swift`, `Diseno.swift` | Indicador de dictado y lenguaje visual |
@@ -189,7 +189,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `PulidoIA.swift`, `AccionesTexto.swift`, `VistaAcciones.swift`, `IALocal.swift` | Dictado pulido y acciones sobre texto seleccionado con el modelo de Apple en el Mac |
 | `Funciones.swift` | Registro de funciones opcionales, interruptores del menú Funciones y lo que cada módulo puede usar de la app |
 | `MaquetaVerme.swift` | Maqueta (solo render) del espejo de cámara «Verme», no integrada a la app |
-| `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--agentes`, `--vista-isla salida.png`) |
+| `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--agentes`, `--vista-isla salida.png`, `--vista-agentes salida.png`) |
 
 ## Desinstalar
 

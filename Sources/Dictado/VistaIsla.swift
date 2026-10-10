@@ -93,10 +93,10 @@ struct VistaIsla: View {
                 BarraNivel(estado: estado, tipo: tipo, valor: valor, silencio: silencio, salida: salida)
             case .salud(let titulo, let detalle, let grave):
                 SaludIsla(estado: estado, titulo: titulo, detalle: detalle, grave: grave) { control?.abrirSalud() }
-            case .agente(let nombre, let alerta, let caido):
-                AgenteIsla(estado: estado, nombre: nombre, alerta: alerta, caido: caido) { control?.verAgentes() }
             case .claude(let sesion, let necesita, let duracion):
                 ClaudeIsla(estado: estado, sesion: sesion, necesita: necesita, duracion: duracion) { control?.abrirClaude(sesion) }
+            case .agente(let nombre, let alerta, let caido):
+                AgenteIsla(estado: estado, nombre: nombre, alerta: alerta, caido: caido) { control?.verAgente(nombre) }
             }
         } else if alas {
             Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude)
@@ -430,8 +430,8 @@ private struct SaludIsla: View {
     }
 }
 
-/// Un agente remoto (por ejemplo, en un servidor) tiene una alerta o dejó de responder. "Ver" abre la isla en la
-/// pestaña Agentes.
+/// Aviso de un agente de fuera del Mac: una tarea falló o el servidor no responde. El ícono va dentro de un dial
+/// encendido en ámbar o rojo. "Ver" abre su detalle en la pestaña Agentes.
 private struct AgenteIsla: View {
     let estado: EstadoIsla
     let nombre: String
@@ -441,6 +441,8 @@ private struct AgenteIsla: View {
 
     var body: some View {
         let colores = Paleta.agente(caido ? .caido : .alerta)
+        // "informe-diario falló: sin conexión" → título "informe-diario falló", detalle "sin conexión".
+        let partes = alerta.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
         Fila(notch: estado.notch) {
             Dial(lado: 48, valor: 1, colores: colores, marcas: 30, arco: 360, anillo: 4, brillo: 0.9, destello: false) {
                 IconoSaltarin(simbolo: "server.rack", color: .white)
@@ -452,10 +454,12 @@ private struct AgenteIsla: View {
             }
             .modifier(Entrada())
             VStack(alignment: .leading, spacing: 1) {
-                Rotulo(caido ? "Agente sin respuesta" : "Alerta de agente", color: colores[1])
-                Text(nombre).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                Text(alerta).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
+                Rotulo((caido ? "Sin respuesta · " : "Alerta · ") + nombre, color: colores[1])
+                Text(partes.first ?? alerta).font(.system(size: 13, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                if partes.count > 1 {
+                    Text(partes[1]).font(.system(size: 11)).foregroundStyle(.white.opacity(0.62)).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer(minLength: 6)
             BotonAviso(titulo: "Ver", accion: ver)
@@ -742,10 +746,10 @@ private struct Expandida: View {
     let abrirSalud: () -> Void
     let medirSalud: () -> Void
 
-    /// Sin elegir: lo que más importa ahora (Claude esperándote o un agente con alerta, el Mac en rojo, Claude
-    /// trabajando, la agenda).
+    /// Sin elegir: lo que más importa ahora (un agente abierto desde su aviso, Claude esperándote o un agente con
+    /// alerta, el Mac en rojo, Claude trabajando, la agenda).
     private var porDefecto: EstadoIsla.Pestana {
-        if !claude.esperando.isEmpty || agentes.hayAlertas { return .agentes }
+        if estado.agenteAbierto != nil || !claude.esperando.isEmpty || agentes.hayAlertas { return .agentes }
         if salud.diagnostico.gravedad == .mal { return .mac }
         if claude.hayActividad { return .agentes }
         return agenda.eventos.isEmpty ? .mac : .agenda
@@ -754,13 +758,13 @@ private struct Expandida: View {
     /// Punto de la pestaña Agentes: naranja si Claude te espera, rojo o ámbar si un agente remoto avisa.
     private var puntoAgentes: Color? {
         if !claude.esperando.isEmpty { return Color.claude }
-        if agentes.agentes.contains(where: { $0.estado == .caido }) { return Gravedad.mal.color }
-        if agentes.hayAlertas { return Gravedad.atento.color }
-        return nil
+        if agentes.agentes.contains(where: { $0.estado == .caido }) { return AgentesRemotos.Estado.caido.color }
+        return agentes.hayAlertas ? AgentesRemotos.Estado.alerta.color : nil
     }
 
     private func elegir(_ p: EstadoIsla.Pestana) {
         estado.pestana = p
+        estado.agenteAbierto = nil
         switch p {
         case .agentes:
             claude.actualizarUso()
@@ -816,13 +820,18 @@ private struct Expandida: View {
                             elegir(.mac)
                         }
                         Spacer(minLength: 4)
-                        if actual == .agentes && claude.tokensHoy > 0 {
+                        if actual == .agentes && estado.agenteAbierto == nil && claude.tokensHoy > 0 {
                             ActividadDia(porHora: claude.porHora)
                                 .help("Hoy: \(claude.respuestasHoy) respuestas y \(Tiempo.tokens(claude.tokensHoy)) tokens escritos entre todas las sesiones")
                         }
                     }
                     switch actual {
-                    case .agentes: ListaAgentes(claude: claude, agentes: agentes, simulado: simulado)
+                    case .agentes:
+                        if let nombre = estado.agenteAbierto, let agente = agentes.agentes.first(where: { $0.nombre == nombre }) {
+                            DetalleAgente(agente: agente, consultando: agentes.consultando) { estado.agenteAbierto = nil }
+                        } else {
+                            ListaAgentes(claude: claude, agentes: agentes, simulado: simulado) { estado.agenteAbierto = $0 }
+                        }
                     case .agenda: ListaAgenda(agenda: agenda, unirse: unirse)
                     case .mac: ResumenMac(salud: salud, abrir: abrirSalud)
                     }
@@ -968,10 +977,12 @@ private struct Pildora: View {
 
 /// Pestaña Agentes: las sesiones de Claude Code y los agentes remotos en una sola lista, primero lo que necesita
 /// atención (Claude esperándote, un agente con alerta), luego lo que trabaja y al final lo que está quieto.
+/// Tocar un agente remoto abre su detalle con el día (`DetalleAgente`).
 private struct ListaAgentes: View {
     let claude: SesionesClaude
     let agentes: AgentesRemotos
     var simulado = false
+    let abrir: (String) -> Void
 
     private enum Elemento: Identifiable {
         case sesion(SesionesClaude.Sesion)
@@ -1019,7 +1030,7 @@ private struct ListaAgentes: View {
             ForEach(elementos) { e in
                 switch e {
                 case .sesion(let s): FilaSesion(sesion: s)
-                case .agente(let a): TarjetaAgente(agente: a)
+                case .agente(let a): TarjetaAgente(agente: a) { abrir(a.nombre) }
                 }
             }
         }
@@ -1100,6 +1111,7 @@ private struct Contexto: View {
 /// las alertas destacadas y sus tareas con "hace X" y la próxima.
 private struct TarjetaAgente: View {
     let agente: AgentesRemotos.Agente
+    let abrir: () -> Void
 
     /// Primero lo que falló, luego lo que corre, luego por la próxima ejecución; las pausadas al final.
     private var tareas: [AgentesRemotos.Tarea] {
@@ -1127,9 +1139,15 @@ private struct TarjetaAgente: View {
     }
 
     var body: some View {
+        Button(action: abrir) { tarjeta.contentShape(Rectangle()) }
+            .buttonStyle(.plain)
+            .help("Ver el día de \(agente.nombre)")
+    }
+
+    private var tarjeta: some View {
         let colores = Paleta.agente(agente.estado)
         let color = colores[1]
-        VStack(alignment: .leading, spacing: 6) {
+        return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 10) {
                 Dial(lado: 30, valor: sanas, colores: colores, marcas: 24, arco: 360, anillo: 3.5, brillo: 0.9, destello: false) {
                     Image(systemName: "server.rack").font(.system(size: 8.5, weight: .semibold)).foregroundStyle(.white.opacity(0.85))
@@ -1151,6 +1169,7 @@ private struct TarjetaAgente: View {
                         .font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.white.opacity(0.3)).fixedSize()
                         .help("Última lectura del agente")
                 }
+                Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.white.opacity(0.3))
             }
             ForEach(Array(agente.alertas.prefix(2).enumerated()), id: \.offset) { _, alerta in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
@@ -1168,7 +1187,7 @@ private struct TarjetaAgente: View {
             }
             if !tareas.isEmpty {
                 VStack(spacing: 3) {
-                    ForEach(tareas.prefix(4)) { FilaTarea(tarea: $0) }
+                    ForEach(tareas.prefix(4)) { TareaTarjeta(tarea: $0) }
                 }
                 if tareas.count > 4 {
                     Text("+\(tareas.count - 4) tareas más").font(.system(size: 10)).foregroundStyle(.white.opacity(0.35))
@@ -1187,8 +1206,9 @@ private struct TarjetaAgente: View {
     }
 }
 
-/// Una tarea programada de un agente remoto: punto de estado, nombre, cuándo corrió y cuándo vuelve a correr.
-private struct FilaTarea: View {
+/// Una tarea programada de un agente remoto en su tarjeta: punto de estado, nombre, cuándo corrió y cuándo vuelve
+/// a correr.
+private struct TareaTarjeta: View {
     let tarea: AgentesRemotos.Tarea
 
     private var color: Color {
@@ -1227,7 +1247,7 @@ private struct FilaTarea: View {
                 .foregroundStyle(tarea.estado == "error" ? color : .white.opacity(0.42))
                 .lineLimit(1)
                 .frame(width: 74, alignment: .trailing)
-            Text(tarea.proxima.map { "→ " + Tiempo.cuando($0) } ?? "")
+            Text(tarea.proxima.map { "→ " + Tiempo.hora($0) } ?? "")
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.62))
                 .lineLimit(1)
@@ -1455,7 +1475,7 @@ private struct Protagonista: View {
         if s < 600 { return ("Empieza en", Tiempo.cuentaRegresiva(hasta: evento.inicio, desde: ahora), "") }
         if s < 3600 { return ("Empieza en", "\(Int((s / 60).rounded(.up)))", "min") }
         let manana = !Calendar.current.isDate(evento.inicio, inSameDayAs: ahora)
-        return (manana ? "Mañana a las" : "A las", Tiempo.hora(evento.inicio, conPeriodo: false), Tiempo.periodo(evento.inicio))
+        return (manana ? "Mañana a las" : "A las", Tiempo.horaDelDia(evento.inicio, conPeriodo: false), Tiempo.periodo(evento.inicio))
     }
 
     var body: some View {
@@ -1622,8 +1642,8 @@ enum Tiempo {
         return f
     }
 
-    /// "3:00 p. m." (o "3:00" sin el periodo).
-    static func hora(_ fecha: Date, conPeriodo: Bool = true) -> String {
+    /// "3:00 p. m." (o "3:00" sin el periodo), sin el día.
+    static func horaDelDia(_ fecha: Date, conPeriodo: Bool = true) -> String {
         formato(conPeriodo ? "h:mm a" : "h:mm").string(from: fecha)
     }
 
@@ -1641,14 +1661,6 @@ enum Tiempo {
         if host.contains("webex") { return "Webex" }
         if host.contains("facetime") { return "FaceTime" }
         return "Videollamada"
-    }
-
-    /// Próxima ejecución: "8:00 p. m." hoy, "mañana 8:00 a. m.", "lun 10:00 a. m.".
-    static func cuando(_ fecha: Date) -> String {
-        let cal = Calendar.current
-        if cal.isDateInToday(fecha) { return hora(fecha) }
-        if cal.isDateInTomorrow(fecha) { return "mañana " + hora(fecha) }
-        return formato("EEE").string(from: fecha).replacingOccurrences(of: ".", with: "") + " " + hora(fecha)
     }
 
     /// "Editando Isla.swift · 3 min", "Necesita tu permiso: swift build", "Lista · hace 5 min".
@@ -1671,10 +1683,20 @@ enum Tiempo {
         return "\(n)"
     }
 
+    /// "3:00 a. m." si es hoy; "mañana 3:00 a. m.", "ayer 8:03 a. m." o "lun. 8:00 a. m." si no.
+    static func hora(_ fecha: Date) -> String {
+        let formato = DateFormatter()
+        formato.locale = Locale(identifier: "es_CO")
+        let cal = Calendar.current
+        formato.dateFormat = cal.isDateInToday(fecha) || cal.isDateInTomorrow(fecha) || cal.isDateInYesterday(fecha) ? "h:mm a" : "EEE h:mm a"
+        let dia = cal.isDateInTomorrow(fecha) ? "mañana " : cal.isDateInYesterday(fecha) ? "ayer " : ""
+        return dia + formato.string(from: fecha)
+    }
+
     /// "2:04 – 2:49 p. m." (formato colombiano de 12 horas).
     static func franja(_ e: Agenda.Evento, conEstado: Bool = true) -> String {
-        let inicio = hora(e.inicio, conPeriodo: false)
-        let fin = hora(e.fin)
+        let inicio = horaDelDia(e.inicio, conPeriodo: false)
+        let fin = horaDelDia(e.fin)
         let dia = Calendar.current.isDateInToday(e.inicio) ? "" : "Mañana · "
         let ahora = Date()
         let estado = !conEstado ? "" : e.inicio <= ahora ? " · en curso"
