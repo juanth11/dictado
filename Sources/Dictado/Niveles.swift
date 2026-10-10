@@ -211,6 +211,43 @@ enum Audio {
         escribir(id, kAudioDevicePropertyMute, UInt32(si ? 1 : 0), kAudioDevicePropertyScopeOutput)
     }
 
+    /// Salidas de sonido que se pueden elegir (altavoces, audífonos, pantallas, AirPlay); sin las virtuales de apps
+    /// como Zoom o Teams, ni las ocultas.
+    static func salidas() -> [AudioDeviceID] {
+        lista(sistema, kAudioHardwarePropertyDevices).filter { id in
+            guard !lista(id, kAudioDevicePropertyStreams, kAudioDevicePropertyScopeOutput).isEmpty,
+                  (leer(id, kAudioDevicePropertyIsHidden, UInt32(0)) ?? 0) == 0 else { return false }
+            let tipo = leer(id, kAudioDevicePropertyTransportType, UInt32(0)) ?? 0
+            return tipo != kAudioDeviceTransportTypeVirtual && tipo != kAudioDeviceTransportTypeAggregate
+        }
+    }
+
+    static func integrado(_ id: AudioDeviceID) -> Bool {
+        leer(id, kAudioDevicePropertyTransportType, UInt32(0)) == kAudioDeviceTransportTypeBuiltIn
+    }
+
+    /// Cambia la salida del Mac: la de las apps y la de los sonidos del sistema.
+    @discardableResult
+    static func ponerSalida(_ id: AudioDeviceID) -> Bool {
+        let ok = escribir(sistema, kAudioHardwarePropertyDefaultOutputDevice, id, kAudioObjectPropertyScopeGlobal)
+        _ = escribir(sistema, kAudioHardwarePropertyDefaultSystemOutputDevice, id, kAudioObjectPropertyScopeGlobal)
+        return ok
+    }
+
+    /// Procesos que están mandando sonido a la salida (macOS 14.2+).
+    static func procesosSonando() -> [(pid: pid_t, bundle: String)] {
+        lista(sistema, kAudioHardwarePropertyProcessObjectList).compactMap { proceso in
+            guard (leer(proceso, kAudioProcessPropertyIsRunningOutput, UInt32(0)) ?? 0) != 0,
+                  let pid = leer(proceso, kAudioProcessPropertyPID, pid_t(0)) else { return nil }
+            var d = direccion(kAudioProcessPropertyBundleID)
+            var texto: Unmanaged<CFString>?
+            var tam = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+            let bundle = AudioObjectGetPropertyData(proceso, &d, 0, nil, &tam, &texto) == noErr
+                ? (texto?.takeRetainedValue() as String? ?? "") : ""
+            return (pid, bundle)
+        }
+    }
+
     /// Dispositivos con micrófono.
     static func entradas() -> [AudioDeviceID] {
         lista(sistema, kAudioHardwarePropertyDevices).filter { !lista($0, kAudioDevicePropertyStreams, kAudioDevicePropertyScopeInput).isEmpty }

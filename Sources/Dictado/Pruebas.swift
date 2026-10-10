@@ -336,10 +336,11 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     enum Escena: String {
         case compacta, abierta, abiertaAgentes, abiertaAgenteAlerta, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento,
              volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso, agenteCaido,
-             agenteDetalle, agenteDetalleAlerta
+             agenteDetalle, agenteDetalleAlerta, abiertaFuentes, abiertaVideo, abiertaSalidas
         case estresAgentes, estresAgenda, estresMac, estresVacia, estresNivel, estresAgente, estresBrillo
         var abierta: Bool {
             [.abierta, .abiertaAgentes, .abiertaAgenteAlerta, .abiertaAgenda, .abiertaMac, .agenteDetalle, .agenteDetalleAlerta,
+             .abiertaFuentes, .abiertaVideo, .abiertaSalidas,
              .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self)
         }
     }
@@ -390,6 +391,11 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
         hud.nivel = 0.75
         hud.texto = "Recordar enviar la propuesta al cliente"
         let airpods = SalidaAudio(nombre: "AirPods Pro")
+        let fuentes = Fuentes(vivo: false)
+        fuentes.salidas = [.init(id: 1, nombre: "Altavoces del MacBook", simbolo: "laptopcomputer"),
+                           .init(id: 2, nombre: "AirPods Pro", simbolo: "airpods.pro"),
+                           .init(id: 3, nombre: "Pantalla del estudio", simbolo: "display")]
+        fuentes.salidaActual = 2
         switch tipo {
         case .compacta: break
         case .llamada:
@@ -407,6 +413,16 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
             var lista = claude.sesiones[1]
             lista.resumen = "Terminé el borrador del informe"
             estado.actividad = .claude(sesion: lista, necesita: false, duracion: 252)
+        case .abiertaFuentes, .abiertaVideo, .abiertaSalidas:  // Spotify y un video de YouTube a la vez; las salidas
+            estado.expandida = true
+            estado.pestana = .agentes
+            let navegador = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "company.thebrowser.Browser")
+                ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.apple.Safari")
+            fuentes.sonando = [.init(id: "navegador", pid: 0, nombre: navegador.map { $0.deletingPathExtension().lastPathComponent } ?? "Safari",
+                                     icono: navegador.map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path), lado: 50) },
+                                     titulo: "Lo-fi para concentrarse · 3 horas", servicio: "YouTube")]
+            if tipo == .abiertaVideo { fuentes.elegida = "navegador" }
+            if tipo == .abiertaSalidas { fuentes.mostrandoSalidas = true }
         case .abiertaAgentes:
             estado.expandida = true
             estado.pestana = .agentes
@@ -519,7 +535,7 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)  // barra de menú
             UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black).frame(width: 186, height: 32)
             VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud, privacidad: privacidad, claude: claude,
-                      agentes: agentes, salud: salud, control: nil)
+                      agentes: agentes, salud: salud, control: nil, fuentes: fuentes)
                 .frame(width: Isla.expandida.width, height: Isla.expandida.height)
                 .frame(height: alto, alignment: .top)
         }

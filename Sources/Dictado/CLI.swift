@@ -211,6 +211,17 @@ enum CLI {
         }
 
         // Agentes remotos configurados en el ajuste `agentes`, como los ve la pestaña Agentes.
+        if args.contains("--fuentes") {  // qué suena y por dónde (lo que ve el reproductor de la isla)
+            await MainActor.run {
+                let f = Fuentes()
+                f.refrescar()
+                print(f.sonando.isEmpty ? "nada suena" : "sonando:")
+                for s in f.sonando { print("  · \(s.nombre) [\(s.id)] — \(s.titulo.isEmpty ? "(sin título)" : s.titulo)" + (s.servicio.map { " · \($0)" } ?? "")) }
+                print("salidas:")
+                for s in f.salidas { print("  \(s.id == f.salidaActual ? "●" : "○") \(s.nombre) (\(s.simbolo))") }
+            }
+            return 0
+        }
         if args.contains("--agentes") {
             let lista = UserDefaults(suiteName: "app.dictado")?.array(forKey: "agentes") as? [[String: Any]] ?? []
             if lista.isEmpty { print("sin agentes configurados (defaults write app.dictado agentes …)") }

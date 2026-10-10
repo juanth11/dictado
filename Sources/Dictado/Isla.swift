@@ -364,6 +364,8 @@ final class Isla {
     let claude: SesionesClaude
     /// Agentes fuera del Mac (servidores) configurados en el ajuste `agentes`; ver Agentes.swift.
     let agentes: AgentesRemotos
+    /// Qué suena en el Mac y por dónde (el reproductor de la isla abierta).
+    let fuentes = Fuentes()
     private let bateria: Bateria
     private var niveles: Niveles?
     private var panel: NSPanel?
@@ -457,7 +459,7 @@ final class Isla {
             sensor.alSalir = { [weak self] in self?.colapsar() }
             let vista = VistaPrimerClic(rootView: VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud,
                                                             privacidad: privacidad, claude: claude, agentes: agentes, salud: salud.estado,
-                                                            control: self))
+                                                            control: self, fuentes: fuentes))
             vista.autoresizingMask = [.width, .height]
             sensor.addSubview(vista)
             p.contentView = sensor

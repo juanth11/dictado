@@ -38,6 +38,8 @@ struct VistaIsla: View {
     let agentes: AgentesRemotos
     let salud: EstadoSalud
     let control: Isla?
+    /// Qué suena y por dónde (el reproductor de la isla abierta); sin ellas, solo Spotify.
+    var fuentes: Fuentes?
 
     private var alas: Bool { musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad }
 
@@ -72,7 +74,7 @@ struct VistaIsla: View {
     @ViewBuilder private var contenido: some View {
         if estado.expandida {
             Expandida(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, agentes: agentes,
-                      salud: salud, simulado: control == nil,
+                      salud: salud, fuentes: fuentes, simulado: control == nil,
                       unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() })
         } else if let actividad = estado.actividad {
             switch actividad {
@@ -1269,6 +1271,7 @@ private struct Expandida: View {
     let claude: SesionesClaude
     let agentes: AgentesRemotos
     let salud: EstadoSalud
+    let fuentes: Fuentes?
     /// Render sin app (ImageRenderer no dibuja ScrollView): las listas se cortan abajo en vez de desplazarse.
     var simulado = false
     let unirse: (URL) -> Void
@@ -1354,7 +1357,7 @@ private struct Expandida: View {
             }
             .frame(height: estado.notch.height)
             HStack(alignment: .top, spacing: 22) {
-                Reproductor(musica: musica)
+                Reproductor(musica: musica, fuentes: fuentes)
                     .frame(width: 212, alignment: .leading)
                     .frame(maxHeight: .infinity, alignment: .center)
                 VStack(alignment: .leading, spacing: 8) {
@@ -1404,7 +1407,17 @@ private struct Expandida: View {
             case .agenda: break
             }
         }
-        .onDisappear { claude.vigilarActividad(false) }
+        .onDisappear {
+            claude.vigilarActividad(false)
+            fuentes?.mostrandoSalidas = false
+        }
+        .task {  // qué suena y por dónde, cada 2 s solo mientras la isla está abierta
+            guard let fuentes, !simulado else { return }
+            while !Task.isCancelled {
+                fuentes.refrescar()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
     }
 }
 
@@ -1684,38 +1697,195 @@ struct Caratula: View {
 /// Reproductor de la vista abierta: carátula, título, onda en el color del álbum, progreso y controles.
 private struct Reproductor: View {
     let musica: Musica
+    var fuentes: Fuentes?
+
+    /// Lo que se puede mostrar: Spotify (si tiene canción) y las demás apps que suenan.
+    private var opciones: [(id: String, nombre: String, icono: NSImage?)] {
+        var lista: [(String, String, NSImage?)] = []
+        if musica.hayPista {
+            let icono = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client")
+                .map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path), lado: 26) }
+            lista.append(("com.spotify.client", "Spotify", icono))
+        }
+        for f in fuentes?.sonando ?? [] where !f.esSpotify { lista.append((f.id, f.servicio ?? f.nombre, f.icono)) }
+        return lista
+    }
+
+    /// Otra app (no Spotify) que se está mostrando: la elegida o, si Spotify no suena, la primera que suena.
+    private var otra: Fuentes.Fuente? {
+        guard let fuentes else { return nil }
+        let otras = fuentes.sonando.filter { !$0.esSpotify }
+        if let id = fuentes.elegida { return otras.first { $0.id == id } }
+        return (musica.hayPista && musica.sonando) ? nil : otras.first
+    }
 
     var body: some View {
-        if musica.hayPista {
-            VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 11) {
-                    Caratula(imagen: musica.caratula, lado: 50, radio: 12, resplandor: true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
-                        Text(musica.artista).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
-                    }
-                    Spacer(minLength: 4)
-                    Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
-                }
-                Progreso(musica: musica)
-                HStack(spacing: 0) {
-                    Spacer()
-                    BotonIsla(simbolo: "backward.fill") { musica.anterior() }
-                    Spacer()
-                    BotonIsla(simbolo: musica.sonando ? "pause.fill" : "play.fill", grande: true) { musica.alternar() }
-                    Spacer()
-                    BotonIsla(simbolo: "forward.fill") { musica.siguiente() }
-                    Spacer()
-                }
-            }
+        if let fuentes, fuentes.mostrandoSalidas {
+            ListaSalidas(fuentes: fuentes)
         } else {
             VStack(alignment: .leading, spacing: 8) {
-                EtiquetaIsla(titulo: "Música")
-                Text("Nada sonando todavía").font(.system(size: 13)).foregroundStyle(Halo.texto2)
-                HStack(spacing: 8) {
-                    BotonHalo(titulo: "Reanudar", icono: "play.fill", alto: 28) { musica.alternar() }
-                    BotonHalo(titulo: "Abrir Spotify", secundario: true, alto: 28) { musica.abrirSpotify() }
+                if opciones.count > 1, let fuentes { selector(fuentes) }
+                if let otra, let fuentes {
+                    FuenteVista(fuente: otra, fuentes: fuentes)
+                } else if musica.hayPista {
+                    spotify
+                } else {
+                    vacio
                 }
+            }
+        }
+    }
+
+    /// Pestañas pequeñas para pasar de una fuente a otra (Spotify · YouTube · …).
+    private func selector(_ fuentes: Fuentes) -> some View {
+        let actual = otra?.id ?? "com.spotify.client"
+        return HStack(spacing: 4) {
+            ForEach(opciones, id: \.id) { o in
+                Button { withAnimation(Halo.cambio) { fuentes.elegida = o.id } } label: {
+                    HStack(spacing: 5) {
+                        if let icono = o.icono { Image(nsImage: icono).resizable().frame(width: 13, height: 13) }
+                        Text(o.nombre).font(.system(size: 10.5, weight: .semibold)).lineLimit(1)
+                    }
+                    .foregroundStyle(o.id == actual ? Halo.texto : Halo.texto3)
+                    .padding(.horizontal, 8)
+                    .frame(height: 20)
+                    .background(Capsule().fill(.white.opacity(o.id == actual ? 0.13 : 0)))
+                    .contentShape(Capsule())
+                    .fixedSize()
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private var spotify: some View {
+        VStack(alignment: .leading, spacing: opciones.count > 1 ? 7 : 9) {
+            HStack(spacing: 9) {
+                Caratula(imagen: musica.caratula, lado: 50, radio: 12, resplandor: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                    Text(musica.artista).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
+                if let fuentes { BotonSalida(fuentes: fuentes) }
+            }
+            Progreso(musica: musica)
+            HStack(spacing: 0) {
+                Spacer()
+                BotonIsla(simbolo: "backward.fill") { musica.anterior() }
+                Spacer()
+                BotonIsla(simbolo: musica.sonando ? "pause.fill" : "play.fill", grande: true) { musica.alternar() }
+                Spacer()
+                BotonIsla(simbolo: "forward.fill") { musica.siguiente() }
+                Spacer()
+            }
+        }
+    }
+
+    private var vacio: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                EtiquetaIsla(titulo: "Música")
+                Spacer()
+                if let fuentes { BotonSalida(fuentes: fuentes) }
+            }
+            Text("Nada sonando todavía").font(.system(size: 13)).foregroundStyle(Halo.texto2)
+            HStack(spacing: 8) {
+                BotonHalo(titulo: "Reanudar", icono: "play.fill", alto: 28) { musica.alternar() }
+                BotonHalo(titulo: "Abrir Spotify", secundario: true, alto: 28) { musica.abrirSpotify() }
+            }
+        }
+    }
+}
+
+/// Otra app que suena (un video de YouTube en el navegador, Música, un podcast…): su ícono, qué suena (del título de
+/// la ventana) y dónde; reproducir o pausar con la tecla multimedia (la recibe la app que suena) e ir a la app.
+private struct FuenteVista: View {
+    let fuente: Fuentes.Fuente
+    let fuentes: Fuentes
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 11) {
+                Group {
+                    if let icono = fuente.icono { Image(nsImage: icono).resizable().scaledToFit() } else { Image(systemName: "waveform") }
+                }
+                .frame(width: 50, height: 50)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.06)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(fuente.titulo.isEmpty ? "Reproduciendo audio" : fuente.titulo)
+                        .font(.system(size: 13.5, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
+                    Text(fuente.detalle).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                BotonSalida(fuentes: fuentes)
+            }
+            HStack(spacing: 0) {
+                Spacer()
+                BotonIsla(simbolo: "playpause.fill") { Musica.teclaMedia(16) }
+                Spacer()
+                BotonHalo(titulo: "Ir a \(fuente.nombre)", icono: "arrow.up.forward", secundario: true, alto: 26) { fuentes.irA(fuente) }
+                Spacer()
+            }
+        }
+    }
+}
+
+/// Por dónde suena: el ícono de la salida actual en un círculo de vidrio; al tocarlo se elige otra.
+private struct BotonSalida: View {
+    let fuentes: Fuentes
+
+    var body: some View {
+        let actual = fuentes.salidas.first { $0.id == fuentes.salidaActual }
+        Button { withAnimation(Halo.cambio) { fuentes.mostrandoSalidas = true } } label: {
+            Image(systemName: actual?.simbolo ?? "hifispeaker.fill")
+                .font(.system(size: 9.5, weight: .semibold))
+                .foregroundStyle(Halo.texto)
+                .frame(width: 23, height: 23)
+                .background(Circle().fill(.white.opacity(0.1)))
+                .overlay(Circle().strokeBorder(.white.opacity(0.12), lineWidth: 0.75))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Por dónde suena: " + (actual?.nombre ?? "elegir salida"))
+    }
+}
+
+/// Las salidas de sonido (altavoces, AirPods, pantalla, AirPlay): la actual con ✓; tocar una cambia el sonido del Mac.
+private struct ListaSalidas: View {
+    let fuentes: Fuentes
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Rotulo("Salida de sonido", color: Halo.texto3)
+                Spacer()
+                Button { withAnimation(Halo.cambio) { fuentes.mostrandoSalidas = false } } label: {
+                    Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Halo.texto2)
+                        .frame(width: 22, height: 22).background(Circle().fill(.white.opacity(0.08))).contentShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            ForEach(fuentes.salidas.prefix(4)) { s in
+                let actual = s.id == fuentes.salidaActual
+                Button {
+                    fuentes.ponerSalida(s)
+                    withAnimation(Halo.cambio) { fuentes.mostrandoSalidas = false }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: s.simbolo).font(.system(size: 12, weight: .medium)).frame(width: 20)
+                        Text(s.nombre).font(.system(size: 12, weight: actual ? .semibold : .regular)).lineLimit(1)
+                        Spacer(minLength: 4)
+                        if actual { Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Tono.azul.claro) }
+                    }
+                    .foregroundStyle(actual ? Halo.texto : Halo.texto2)
+                    .padding(.horizontal, 8)
+                    .frame(height: 26)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(.white.opacity(actual ? 0.1 : 0)))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
             }
         }
     }
