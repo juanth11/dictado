@@ -48,7 +48,7 @@ private func renderCentro(_ estado: EstadoCentro?, destino: URL, escena: String?
     let vista = lienzoHalo(fondoDeMuestra(), lienzo: lienzo, panel: ventana) {
         VistaCentro(estado: estado, ctx: ctx, seccion: .constant(seccion))
             .frame(width: ventana.width, height: ventana.height)
-            .panelHalo(simulado: true)
+            .vidrioCentro(simulado: true)
     }
     .environment(\.colorScheme, .dark)
     let renderer = ImageRenderer(content: vista)

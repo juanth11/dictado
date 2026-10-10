@@ -160,7 +160,7 @@ private struct RaizCentro: View {
                                      NSPasteboard.general.setString(texto, forType: .string)
                                  })
         VistaCentro(estado: store.estado, ctx: ctx, seccion: $navegacion.seccion)
-            .panelHalo(simulado: simulado)
+            .vidrioCentro(simulado: simulado)
             .ignoresSafeArea()
     }
 }
