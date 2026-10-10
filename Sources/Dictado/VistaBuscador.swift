@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Buscador de ventanas (Hyper + Espacio) en vidrio claro, como el portapapeles: arriba la búsqueda, en medio
-/// las ventanas (ícono, título y app) y abajo las teclas.
+/// Buscador de ventanas (Hyper + Espacio) en Halo: arriba la búsqueda en una cápsula de vidrio, en medio las
+/// ventanas (ícono, título y app; la elegida levantada con el tono azul y su ↩ en blanco) y abajo las teclas.
 struct VistaBuscador: View {
     static let ancho: CGFloat = 640
     static let alto: CGFloat = 512
@@ -29,18 +29,18 @@ struct VistaBuscador: View {
 
     private var cabecera: some View {
         HStack(spacing: 12) {
-            BotonCirculo(simbolo: "xmark", lado: 34, ayuda: "Cerrar (Esc)") { control?.cerrar() }
-            HStack(spacing: 10) {
+            BotonCirculo(simbolo: "xmark", lado: 40, ayuda: "Cerrar (Esc)") { control?.cerrar() }
+            HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 15, weight: .medium))
-                    .foregroundStyle(Diseno.tintaSuave)
+                    .foregroundStyle(estado.busqueda.isEmpty ? Halo.texto3 : Halo.texto2)
                 if simulado {  // ImageRenderer no dibuja campos de AppKit
                     if estado.busqueda.isEmpty {
-                        Text("Buscar una ventana por título o app").font(.system(size: 15)).foregroundStyle(Diseno.tintaTenue)
+                        Text("Buscar una ventana por título o app").font(.system(size: 15)).foregroundStyle(Halo.texto3)
                     } else {
                         HStack(spacing: 1) {
-                            Text(estado.busqueda).font(.system(size: 15)).foregroundStyle(Diseno.tinta)
-                            Rectangle().fill(Diseno.tintaSuave).frame(width: 1.5, height: 18)  // cursor
+                            Text(estado.busqueda).font(.system(size: 15)).foregroundStyle(Halo.texto)
+                            Rectangle().fill(Tono.azul.claro).frame(width: 1.5, height: 18)  // cursor
                         }
                     }
                     Spacer()
@@ -51,10 +51,11 @@ struct VistaBuscador: View {
                         .focused($buscando)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, 16)
             .frame(height: 40)
-            .background(Capsule().fill(Color.white.opacity(0.5)))
-            .overlay(Capsule().strokeBorder(Diseno.borde, lineWidth: 0.8))
+            .background(Capsule().fill(.white.opacity(0.07)))
+            .overlay(Capsule().strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.05)],
+                                                           startPoint: .top, endPoint: .bottom), lineWidth: 1))
             if !estado.cargando {
                 Chip(texto: lista.count == 1 ? "1 ventana" : "\(lista.count) ventanas", simbolo: "macwindow.on.rectangle")
             }
@@ -76,12 +77,12 @@ struct VistaBuscador: View {
     }
 
     private var filas: some View {
-        LazyVStack(alignment: .leading, spacing: 2) {
+        LazyVStack(alignment: .leading, spacing: 0) {
             ForEach(secciones, id: \.titulo) { seccion in
                 if !seccion.titulo.isEmpty {
                     EtiquetaSeccion(titulo: seccion.titulo)
-                        .padding(.horizontal, 10)
-                        .padding(.top, 10)
+                        .padding(.horizontal, 12)
+                        .padding(.top, seccion.titulo == secciones.first?.titulo ? 4 : 12)
                         .padding(.bottom, 4)
                 }
                 ForEach(seccion.ventanas) { v in
@@ -91,16 +92,14 @@ struct VistaBuscador: View {
                 }
             }
             if lista.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: estado.cargando ? "hourglass" : "macwindow")
-                        .font(.system(size: 24)).foregroundStyle(Diseno.tintaTenue)
-                    Text(vacio).font(.system(size: 13)).foregroundStyle(Diseno.tintaSuave)
+                VStack(spacing: 12) {
+                    Insignia(icono: .simbolo(estado.cargando ? "hourglass" : "macwindow"), tono: .neutro, lado: 44)
+                    Text(vacio).font(.system(size: 13)).foregroundStyle(Halo.texto2)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 90)
+                .padding(.top, 88)
             }
         }
-        .padding(.bottom, 4)
     }
 
     private var vacio: String {
@@ -118,16 +117,16 @@ struct VistaBuscador: View {
     }
 
     private var pie: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 16) {
             Tecla(texto: "↑↓", accion: "elegir")
             Tecla(texto: "↩", accion: "ir a la ventana")
             Tecla(texto: "esc", accion: "cerrar")
             Spacer()
             Text("Solo este Escritorio y las minimizadas")
-                .font(.system(size: 10))
-                .foregroundStyle(Diseno.tintaTenue)
+                .font(.system(size: 10.5))
+                .foregroundStyle(Halo.texto3)
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 12)
     }
 
     private struct Tecla: View {
@@ -135,58 +134,66 @@ struct VistaBuscador: View {
         let accion: String
 
         var body: some View {
-            HStack(spacing: 5) {
+            HStack(spacing: 6) {
                 Text(texto)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Diseno.tintaSuave)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(Halo.texto2)
                     .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(Color.white.opacity(0.55)))
-                Text(accion).font(.system(size: 11)).foregroundStyle(Diseno.tintaSuave)
+                    .frame(minWidth: 20, minHeight: 18)
+                    .background(RoundedRectangle(cornerRadius: 5, style: .continuous).fill(.white.opacity(0.08)))
+                    .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous).strokeBorder(.white.opacity(0.1), lineWidth: 1))
+                Text(accion).font(.system(size: 11)).foregroundStyle(Halo.texto2)
             }
         }
     }
 }
 
+/// Una ventana: ícono, título y app. La elegida se levanta en una tarjeta con el tono azul que nace de la esquina
+/// y muestra ↩ en una tecla blanca (la acción principal); al moverte, la tarjeta cambia con un resorte corto.
 private struct FilaVentana: View {
     let ventana: VentanaEncontrada
     let cursor: Bool
 
     var body: some View {
-        let forma = RoundedRectangle(cornerRadius: 14, style: .continuous)
         HStack(spacing: 12) {
             Group {
                 if let icono = ventana.icono {
                     Image(nsImage: icono).resizable()
                 } else {
-                    Image(systemName: "app.dashed")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Diseno.tintaTenue)
+                    Insignia(icono: .simbolo("app.dashed"), tono: .neutro, lado: 30)
                 }
             }
             .frame(width: 30, height: 30)
-            .opacity(ventana.guardada ? 0.7 : 1)
+            .opacity(ventana.guardada ? 0.6 : 1)
+            .saturation(ventana.guardada ? 0.5 : 1)
             VStack(alignment: .leading, spacing: 2) {
                 Text(ventana.tituloVisible)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(Diseno.tinta)
+                    .font(.system(size: 13, weight: cursor ? .semibold : .medium))
+                    .foregroundStyle(ventana.guardada && !cursor ? Halo.texto2 : Halo.texto)
                     .lineLimit(1)
                 Text(detalle)
                     .font(.system(size: 11))
-                    .foregroundStyle(Diseno.tintaSuave)
+                    .foregroundStyle(cursor ? Halo.texto2 : Halo.texto3)
                     .lineLimit(1)
             }
             Spacer(minLength: 6)
             if cursor {
-                Text("↩").font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(Diseno.tintaTenue)
+                Text("↩")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 26, height: 20)
+                    .background(Capsule().fill(LinearGradient(colors: [.white, Color(white: 0.86)], startPoint: .top, endPoint: .bottom)))
+                    .shadow(color: .white.opacity(0.18), radius: 6)
             } else if ventana.minimizada {
-                Image(systemName: "minus.circle").font(.system(size: 11)).foregroundStyle(Diseno.tintaTenue)
+                Image(systemName: "minus.circle").font(.system(size: 11)).foregroundStyle(Halo.texto3)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .background {
-            if cursor { forma.fill(Color.white).shadow(color: Diseno.sombra, radius: 8, y: 3) }
+            if cursor {
+                Color.clear.tarjetaHalo(radio: Halo.radioFila, activa: true, tono: .azul)
+            }
         }
         .contentShape(Rectangle())
     }
