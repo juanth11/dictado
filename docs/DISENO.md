@@ -52,7 +52,8 @@ Cada tono tiene `base` y `claro`. Las marcas, el líquido y la luz van del uno a
 | `LuzBorde` | Luz del tono que sube desde el borde de abajo (estática) | Avisos de la isla, isla abierta, vista previa del portapapeles, cabecera de Salud |
 | `Dial` | Anillo de marcas que se enciende, disco negro, resplandor y destello en el valor | Mac, avisos de Salud y de agentes, fila de un agente |
 | `Cuna` | Rayitas que suben de izquierda a derecha sobre una cuadrícula tenue, encendidas hasta el nivel, con la luz debajo y un marcador blanco | Brillo |
-| `Piramide` | Triángulo de vidrio sobre una cuadrícula fina que se llena de luz desde la base hasta el nivel, con rejilla de puntos de parlante y marcador ◀; por encima de 80 %, la punta naranja | Volumen ("VOL 62" · BAJO, MEDIO, ALTO, MÁXIMO) |
+| `ArcoTubo` | Arco de termostato: un tubo con volumen (sombra abajo, brillo arriba) que se enciende de azul a violeta, naranja y rojo hasta el nivel, con una perilla blanca que brilla y la cifra con relieve en el centro | Volumen |
+| `BotonVidrio` | Botón redondo de vidrio oscuro con relieve; con tinte, brilla de ese color (rojo en silencio) | Volumen |
 | `Regla` | Las mismas marcas en línea | Niveles y medidas pequeñas |
 | `Liquido` | Cápsula de progreso que brilla, con reflejo e ícono o texto | El día de un agente, espacio liberado |
 | `Cifra`, `NumeroFino` | Cifra con su unidad en versalitas | Todo dato principal |
@@ -87,7 +88,8 @@ El video [`halo-animaciones.mp4`](halo-animaciones.mp4) se genera con `Dictado -
 
 | Aviso | Alto extra |
 |---|---|
-| Volumen y brillo | 44 |
+| Brillo | 44 |
+| Volumen (el arco necesita un poco más) | 52 |
 | Salud del Mac y agentes | 50 |
 | Reunión | 52 |
 | Claude y "Ahora suena" | 58 |

@@ -368,171 +368,139 @@ private struct Cuna: View {
     }
 }
 
-/// Volumen como una pirámide de luz (como un indicador de calidad del aire): sobre una cuadrícula fina, un triángulo
-/// de vidrio que se llena de luz desde la base hasta el nivel, con una rejilla de puntos de parlante abajo y un
-/// marcador blanco ◀ a la derecha en la altura del nivel. Muy alto, la punta se vuelve naranja (aviso). A la
-/// izquierda "VOL 62" en su tono; a la derecha la palabra del nivel y a dónde va el sonido. En silencio la pirámide
-/// queda vacía, con el nivel guardado marcado tenue.
+/// Volumen como un termostato: un arco de tubo con volumen que va de azul (bajo) a naranja y rojo (alto), encendido
+/// hasta el nivel y tenue después, con una perilla blanca que brilla en el nivel y la cifra grande con relieve en el
+/// centro. A la izquierda, un botón de vidrio con el parlante (rojo en silencio, como el de encendido); a la derecha,
+/// a dónde va el sonido. En silencio el arco se apaga y la perilla queda gris en el volumen guardado.
 private struct VolumenIsla: View {
     let estado: EstadoIsla
     let valor: Double
     let silencio: Bool
     var salida: SalidaAudio?
 
-    private static let azul = Color(red: 0.36, green: 0.72, blue: 1.0)
-    private static let rojoMudo = Color(red: 1.0, green: 0.46, blue: 0.44)
-
-    private var palabra: String {
-        if silencio { return "Silencio" }
-        switch valor {
-        case ..<0.01: return "Sin sonido"
-        case ..<0.34: return "Bajo"
-        case ..<0.67: return "Medio"
-        case ..<0.9: return "Alto"
-        default: return "Máximo"
-        }
-    }
+    private static let rojo = Color(red: 1.0, green: 0.33, blue: 0.27)
 
     var body: some View {
         VStack(spacing: 0) {
             Color.clear.frame(height: estado.notch.height)
             HStack(spacing: 0) {
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text("VOL").font(.system(size: 13, weight: .semibold)).foregroundStyle((silencio ? Self.rojoMudo : Self.azul).opacity(0.85))
-                    Text(silencio ? "—" : "\(Int((valor * 100).rounded()))")
-                        .font(.system(size: 22, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(silencio ? Self.rojoMudo : Self.azul)
+                BotonVidrio(simbolo: silencio ? "speaker.slash.fill" : "speaker.wave.3.fill", valor: valor,
+                            tinte: silencio ? Self.rojo : nil)
+                Spacer(minLength: 8)
+                ZStack(alignment: .bottom) {
+                    ArcoTubo(valor: valor, apagada: silencio)
+                        .frame(width: 140, height: 58)
+                    Text("\(Int((valor * 100).rounded()))")
+                        .font(.system(size: 21, weight: .semibold, design: .rounded)).monospacedDigit()
+                        .foregroundStyle(LinearGradient(colors: silencio ? [Color(white: 0.55), Color(white: 0.35)]
+                                                                 : [.white, Color(white: 0.7)],
+                                                        startPoint: .top, endPoint: .bottom))
+                        .shadow(color: .black.opacity(0.7), radius: 1.5, y: 1.5)
                         .contentTransition(.numericText(value: valor))
-                        .shadow(color: Self.azul.opacity(silencio ? 0 : 0.5), radius: 6)
+                        .offset(y: 1)
                 }
-                .frame(width: 112, alignment: .leading)
                 Spacer(minLength: 8)
-                Piramide(valor: valor, apagada: silencio)
-                    .frame(width: 66, height: 35)
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(palabra.uppercased()).font(.system(size: 15, weight: .heavy)).tracking(0.3)
-                        .foregroundStyle(silencio ? Self.rojoMudo : .white).lineLimit(1)
-                        .contentTransition(.interpolate)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Rotulo(silencio ? "Silencio" : "Volumen", color: silencio ? Self.rojo : Halo.texto3)
                     if let salida {
                         Label { Text(salida.nombre) } icon: { Image(systemName: salida.simbolo) }
-                            .font(.system(size: 10, weight: .medium)).foregroundStyle(Halo.texto3)
+                            .font(.system(size: 11.5, weight: .semibold)).foregroundStyle(silencio ? Halo.texto3 : Halo.texto)
                             .labelStyle(EtiquetaJunta()).lineLimit(1)
                     }
                 }
                 .frame(width: 112, alignment: .trailing)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 3)  // la base de la pirámide no toca el borde
-            .frame(maxHeight: .infinity)
+            .padding(.horizontal, 22)
+            .padding(.bottom, 5)  // el arco y la cifra no tocan el borde; la perilla nunca queda bajo el notch
+            .frame(maxHeight: .infinity, alignment: .bottom)
         }
-        .background { Cuadricula().padding(.top, estado.notch.height) }
         .animation(Halo.cambio, value: valor)
         .animation(Halo.cambio, value: silencio)
     }
 }
 
-/// Cuadrícula fina de fondo (cada 8 pt), que se desvanece hacia los bordes.
-private struct Cuadricula: View {
+/// Botón redondo de vidrio oscuro con relieve (como los de un termostato); con tinte, el vidrio brilla de ese color.
+private struct BotonVidrio: View {
+    let simbolo: String
+    var valor: Double = 1
+    var tinte: Color?
+
     var body: some View {
-        GeometryReader { g in
-            Path { p in
-                var x: CGFloat = 0
-                while x <= g.size.width { p.move(to: CGPoint(x: x, y: 0)); p.addLine(to: CGPoint(x: x, y: g.size.height)); x += 8 }
-                var y: CGFloat = 0
-                while y <= g.size.height { p.move(to: CGPoint(x: 0, y: y)); p.addLine(to: CGPoint(x: g.size.width, y: y)); y += 8 }
-            }
-            .stroke(.white.opacity(0.08), lineWidth: 0.5)
-            .mask(RadialGradient(colors: [.black, .black.opacity(0.4), .clear], center: .center, startRadius: 0,
-                                 endRadius: g.size.width * 0.5))
+        ZStack {
+            Circle().fill(RadialGradient(colors: [(tinte ?? Color(white: 0.32)).opacity(tinte == nil ? 0.9 : 0.75),
+                                                  (tinte ?? Color(white: 0.12)).opacity(tinte == nil ? 1 : 0.35)],
+                                         center: UnitPoint(x: 0.5, y: 0.2), startRadius: 0, endRadius: 22))
+            Circle().strokeBorder(LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.05)], startPoint: .top, endPoint: .bottom),
+                                  lineWidth: 0.8)
+            Image(systemName: simbolo, variableValue: max(valor, 0.01))
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.white)
+                .contentTransition(.symbolEffect(.replace))
         }
-        .allowsHitTesting(false)
+        .frame(width: 32, height: 32)
+        .shadow(color: .black.opacity(0.6), radius: 3, y: 2)
+        .shadow(color: (tinte ?? .clear).opacity(0.55), radius: 8)
     }
 }
 
-/// La pirámide: vidrio oscuro con filos de luz, relleno de luz desde la base hasta el nivel (azul abajo, violeta
-/// arriba; por encima de 80 %, la punta naranja), la línea del nivel, la rejilla de puntos en la base y el marcador.
-private struct Piramide: View {
+/// El arco del termostato: medio círculo por arriba, con un tubo de volumen (sombra debajo, brillo arriba) que se
+/// enciende hasta el nivel con el degradado azul → violeta → naranja → rojo; después del nivel queda tenue; los
+/// extremos se desvanecen; la perilla es una esfera blanca que brilla.
+private struct ArcoTubo: View {
     let valor: Double
     var apagada = false
 
-    private static let azul = Color(red: 0.25, green: 0.55, blue: 1.0)
-    private static let celeste = Color(red: 0.55, green: 0.85, blue: 1.0)
-    private static let violeta = Color(red: 0.62, green: 0.48, blue: 1.0)
-    private static let naranja = Color(red: 1.0, green: 0.52, blue: 0.2)
+    private static let colores = [Color(red: 0.3, green: 0.6, blue: 1.0), Color(red: 0.55, green: 0.78, blue: 1.0),
+                                  Color(red: 0.7, green: 0.55, blue: 1.0), Color(red: 1.0, green: 0.6, blue: 0.3),
+                                  Color(red: 1.0, green: 0.3, blue: 0.25)]
 
     var body: some View {
         let v = max(0, min(1, valor))
         GeometryReader { g in
-            let w = g.size.width - 10, h = g.size.height  // a la derecha, el marcador
-            let forma = Triangulo().path(in: CGRect(x: 0, y: 0, width: w, height: h))
-            let nivelY = h * (1 - v)
-            ZStack(alignment: .topLeading) {
-                // luz que se derrama bajo la base
-                if !apagada && v > 0 {
-                    Ellipse().fill(Self.azul).frame(width: w * 1.2, height: h * 0.5)
-                        .position(x: w / 2, y: h + 2).blur(radius: 9).opacity(0.25 + 0.4 * v)
+            let grosor: CGFloat = 8.5
+            let radio: CGFloat = 40  // el resto del cuadro es aire para que el brillo se desvanezca sin bordes
+            let centro = CGPoint(x: g.size.width / 2, y: g.size.height - 1)
+            let arco = { (hasta: Double) -> Path in
+                Path { p in
+                    p.addArc(center: centro, radius: radio, startAngle: .degrees(180), endAngle: .degrees(180 + 180 * hasta),
+                             clockwise: false)
                 }
-                // vidrio
-                forma.fill(LinearGradient(colors: [.white.opacity(0.08), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom))
-                // relleno hasta el nivel
-                if !apagada && v > 0 {
-                    Rectangle()
-                        .fill(LinearGradient(stops: relleno(v), startPoint: .bottom, endPoint: .top))
-                        .frame(width: w, height: h * v)
-                        .offset(y: nivelY)
-                        .mask(forma)
-                        .shadow(color: Self.azul.opacity(0.8), radius: 7)
-                    Rectangle()  // brillo junto a la línea del nivel, como luz que cae
-                        .fill(LinearGradient(colors: [.white.opacity(0.55), .white.opacity(0)], startPoint: .top, endPoint: .bottom))
-                        .frame(width: w, height: min(h * v, 9))
-                        .offset(y: nivelY)
-                        .mask(forma)
-                        .blendMode(.plusLighter)
-                    // la línea del nivel
-                    Rectangle().fill(.white.opacity(0.85)).frame(width: w, height: 0.8)
-                        .offset(y: nivelY).mask(forma).shadow(color: .white, radius: 2)
-                }
-                // rejilla de puntos del parlante, en la base
-                Canvas { ctx, _ in
-                    let filas: [(Int, CGFloat)] = [(3, 0), (4, 1), (5, 2), (4, 3), (3, 4)]
-                    let paso: CGFloat = 3.2, r: CGFloat = 0.85
-                    for (n, f) in filas {
-                        let y = h - 6 - (4 - f) * paso * 0.88
-                        for i in 0..<n {
-                            let x = w / 2 + (CGFloat(i) - CGFloat(n - 1) / 2) * paso
-                            ctx.fill(Path(ellipseIn: CGRect(x: x - r, y: y - r, width: 2 * r, height: 2 * r)),
-                                     with: .color(.white.opacity(apagada ? 0.25 : 0.55 + 0.4 * v)))
-                        }
-                    }
-                }
-                .frame(width: w, height: h)
-                // filos de luz
-                forma.stroke(LinearGradient(colors: [.white.opacity(apagada ? 0.3 : 0.75), .white.opacity(0.12)],
-                                            startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
-                // marcador ◀ en la altura del nivel, junto al filo derecho
-                Triangulo()
-                    .rotation(.degrees(-90))
-                    .fill(apagada ? Color.white.opacity(0.4) : .white)
-                    .frame(width: 5, height: 6)
-                    .shadow(color: apagada ? .clear : .white.opacity(0.8), radius: 2)
-                    .position(x: w / 2 + (w / 2) * (nivelY / h) + 6, y: min(h - 3, max(3, nivelY)))
             }
+            let degradado = LinearGradient(colors: apagada ? [Color(white: 0.4), Color(white: 0.3)] : Self.colores,
+                                           startPoint: .leading, endPoint: .trailing)
+            let angulo = (180 + 180 * v) * .pi / 180
+            let perilla = CGPoint(x: centro.x + radio * cos(angulo), y: centro.y + radio * sin(angulo))
+            ZStack {
+                // hendidura: el tubo va encajado (sombra arriba, filo de luz abajo)
+                arco(1).stroke(Color.black.opacity(0.8), style: StrokeStyle(lineWidth: grosor + 3, lineCap: .round))
+                    .blur(radius: 1.5).offset(y: -0.5)
+                arco(1).stroke(Color.white.opacity(0.07), style: StrokeStyle(lineWidth: grosor + 2, lineCap: .round)).offset(y: 0.8)
+                // el tubo completo, tenue
+                arco(1).stroke(degradado, style: StrokeStyle(lineWidth: grosor, lineCap: .round)).opacity(apagada ? 0.25 : 0.22)
+                if !apagada && v > 0.001 {
+                    // resplandor del tramo encendido
+                    arco(v).stroke(degradado, style: StrokeStyle(lineWidth: grosor + 6, lineCap: .round)).blur(radius: 7).opacity(0.75)
+                    // el tubo encendido
+                    arco(v).stroke(degradado, style: StrokeStyle(lineWidth: grosor, lineCap: .round))
+                    // sombra interior abajo y brillo arriba: volumen de tubo
+                    arco(v).stroke(Color.black.opacity(0.35), style: StrokeStyle(lineWidth: grosor * 0.4, lineCap: .round))
+                        .blur(radius: 1.2).offset(y: grosor * 0.22)
+                    arco(v).stroke(Color.white.opacity(0.55), style: StrokeStyle(lineWidth: grosor * 0.28, lineCap: .round))
+                        .blur(radius: 0.8).offset(y: -grosor * 0.2)
+                }
+                // la perilla: esfera blanca que brilla
+                Circle()
+                    .fill(RadialGradient(colors: [.white, Color(white: apagada ? 0.55 : 0.88)], center: UnitPoint(x: 0.4, y: 0.35),
+                                         startRadius: 0, endRadius: 7))
+                    .frame(width: 12, height: 12)
+                    .shadow(color: apagada ? .clear : .white.opacity(0.95), radius: 4)
+                    .shadow(color: apagada ? .black.opacity(0.5) : Color(red: 1, green: 0.9, blue: 0.75).opacity(0.7), radius: 9)
+                    .position(perilla)
+            }
+            // los extremos se desvanecen hacia la base, como en el termostato
+            .mask(LinearGradient(stops: [.init(color: .black, location: 0), .init(color: .black, location: 0.7),
+                                         .init(color: .black.opacity(0.12), location: 1)], startPoint: .top, endPoint: .bottom))
         }
-    }
-
-    /// La luz es más fuerte arriba (junto al nivel) y se apaga hacia la base: azul tenue abajo, azul y celeste arriba;
-    /// por encima de 80 %, la punta naranja.
-    private func relleno(_ v: Double) -> [Gradient.Stop] {
-        var paradas: [Gradient.Stop] = [.init(color: Self.azul.opacity(0.35), location: 0), .init(color: Self.azul.opacity(0.85), location: 0.5)]
-        if v > 0.8 {
-            let corte = 0.8 / v
-            paradas += [.init(color: Self.celeste, location: corte - 0.03), .init(color: Self.naranja, location: corte + 0.02),
-                        .init(color: Color(red: 1.0, green: 0.72, blue: 0.4), location: 1)]
-        } else {
-            paradas += [.init(color: Self.celeste, location: 1)]
-        }
-        return paradas
     }
 }
 
