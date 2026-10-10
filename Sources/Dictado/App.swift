@@ -35,6 +35,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let itemPortapapeles = NSMenuItem(title: "Portapapeles", action: #selector(abrirPortapapeles), keyEquivalent: "")
     private let captura = Captura()
     private var salud: Salud!
+    /// Módulos opcionales vivos (ver Funciones.swift y docs/FUNCIONES.md).
+    private var modulos: [AnyObject] = []
+    /// Transformación del texto dictado antes de pegarlo (la registra el módulo de pulido con IA).
+    private var pulidor: (@MainActor (String) async -> String)?
+    private let menuFunciones = NSMenu()
     private let itemSalud = NSMenuItem(title: "Salud del Mac…", action: #selector(abrirSalud), keyEquivalent: "")
     private var isla: Isla?
     private var diagnostico: Timer?
@@ -69,7 +74,31 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         registrarAtajos()
         registrarPortapapeles()
         asegurarInicio()
+        instalarModulos()
         Task { await preparar() }
+    }
+
+    // MARK: - Módulos opcionales
+
+    /// MÓDULOS: una línea por módulo (ver docs/FUNCIONES.md). Para quitar uno del todo: borra su línea aquí,
+    /// su archivo en Sources/Dictado y su caso en `Funcion`.
+    private func instalarModulos() {
+        let contexto = ContextoModulos(
+            avisar: { [weak self] texto, icono, nota in self?.avisar(texto, icono: icono, nota: nota) },
+            guardarIdea: { [weak self] texto in self?.guardarEnInbox(texto) },
+            abrirPortapapeles: { [weak self] in self?.portapapeles.abrir() },
+            abrirCaptura: { [weak self] in self?.captura.abrir() },
+            abrirSalud: { [weak self] in self?.salud.abrir() },
+            unirseAProxima: { [weak self] in self?.unirseAProxima() },
+            registrarPulido: { [weak self] pulir in self?.pulidor = pulir })
+        // ↓ módulos
+        _ = contexto
+        // ↑ módulos
+    }
+
+    private func unirseAProxima() {
+        if let isla, isla.unirseAProxima() { return }
+        avisar("No hay reuniones con enlace en la próxima hora", icono: "calendar.badge.exclamationmark")
     }
 
     /// Dictado se abre solo al iniciar sesión, salvo que lo apagues en el menú. Si macOS pide aprobarlo
@@ -272,6 +301,10 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             avisar("No escuché nada", icono: "mic.slash", segundos: 1.2)
             return
         }
+        var texto = texto
+        if Funcion.pulido.activa, let pulidor {
+            texto = await pulidor(texto)
+        }
         ultimo = texto
         itemUltimo.title = "Último: " + (texto.count > 50 ? texto.prefix(50) + "…" : texto)
         switch modo {
@@ -370,6 +403,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         itemNiveles.isEnabled = ajustes.isla
         itemNiveles.indentationLevel = 1
         menu.addItem(itemNiveles)
+        let itemFunciones = NSMenuItem(title: "Funciones", action: nil, keyEquivalent: "")
+        itemFunciones.submenu = menuFunciones
+        for f in Funcion.allCases {
+            let i = NSMenuItem(title: f.titulo, action: #selector(alternarFuncion(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = f.rawValue
+            i.toolTip = f.detalle
+            menuFunciones.addItem(i)
+        }
+        menu.addItem(itemFunciones)
         itemUltimo.target = self
         menu.addItem(itemUltimo)
         itemPermiso.target = self
@@ -398,7 +441,16 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         item.menu = menu
     }
 
+    /// Prende o apaga una función opcional; el módulo se entera por la notificación funcionesCambiaron.
+    @objc private func alternarFuncion(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String, let f = Funcion(rawValue: id) else { return }
+        f.poner(!f.activa)
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
+        menuFunciones.items.forEach { i in
+            i.state = (i.representedObject as? String).flatMap(Funcion.init(rawValue:))?.activa == true ? .on : .off
+        }
         menuEstilos?.items.forEach { $0.state = ($0.representedObject as? String) == hud.estado.estilo.rawValue ? .on : .off }
         itemPermiso.isHidden = AXIsProcessTrusted()
         actualizarItemInicio()

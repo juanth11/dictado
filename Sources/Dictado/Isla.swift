@@ -517,6 +517,16 @@ final class Isla {
         quitarActividad()
     }
 
+    /// La reunión en curso o la que empieza en la próxima hora, si tiene enlace. false si no hay ninguna.
+    @discardableResult
+    func unirseAProxima() -> Bool {
+        let ahora = Date()
+        guard let e = agenda.eventos.first(where: { $0.enlace != nil && $0.fin > ahora && $0.inicio.timeIntervalSince(ahora) < 3600 }),
+              let enlace = e.enlace else { return false }
+        unirse(enlace)
+        return true
+    }
+
     /// Abre la videollamada (Zoom directo en su app si está instalada).
     func unirse(_ enlace: URL) {
         let ok = enlace.scheme == "dictado-prueba" ? false : NSWorkspace.shared.open(Reunion.abrible(enlace))
