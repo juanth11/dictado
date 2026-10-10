@@ -42,6 +42,8 @@ if argumentos.count > 2, argumentos[1] == "--vista-acciones" {
     let ok = MainActor.assumeIsolated { hojaAcciones(URL(fileURLWithPath: argumentos[2])) }
     exit(ok ? 0 : 1)
 }
+// Tecla hyper, ventanas por teclado y buscador (PruebasTeclado.swift).
+if let codigo = MainActor.assumeIsolated({ cliTeclado(argumentos) }) { exit(codigo) }
 if argumentos.count > 1, argumentos[1].hasPrefix("--") {
     Task {
         let codigo = await CLI.ejecutar(argumentos)

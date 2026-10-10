@@ -95,6 +95,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // ↓ módulos
         modulos.append(PulidoIA(contexto))
         modulos.append(AccionesTexto(contexto))
+        modulos.append(TeclaHyper(contexto))
+        modulos.append(VentanasTeclado(contexto))
+        modulos.append(BuscadorVentanas(contexto))
         // ↑ módulos
     }
 

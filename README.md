@@ -27,6 +27,11 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
 | **Dictado pulido con IA local** (opcional) | Automático al dictar: el modelo de Apple en el Mac quita muletillas y arregla la puntuación, con el tono de la app al frente (chat, correo, prompt, documento). [Ficha](docs/FUNCIONES.md#dictado-pulido-con-ia-local) | Wispr Flow, superwhisper (modos) |
 | **Acciones sobre texto seleccionado** (opcional) | **Hyper + T** sobre un texto: traducir, corregir, resumir, más formal, mandar a Claude o guardar como idea; luego Reemplazar o Copiar. [Ficha](docs/FUNCIONES.md#acciones-sobre-texto-seleccionado) | PopClip, Raycast AI |
+| **Tecla hyper** (opcional) | Mantén **Bloq Mayús** = ⌃⌥⌘⇧, para atajos que no chocan con nada; sola es **Esc**. Hyper + V portapapeles, + C captura, + M Salud del Mac, + U unirse a la reunión. | Hyperkey, Karabiner (lo básico) |
+| **Ventanas por teclado** (opcional) | **Hyper + ←/→**: mitad, tercio y dos tercios. **↑** casi maximizar, **↓** restaurar, **N** otra pantalla, **↩** centrar. | Rectangle, Magnet |
+| **Buscador de ventanas** (opcional) | **Hyper + Espacio**: escribe parte del título o de la app y salta a la ventana, aunque esté minimizada. | Contexts, AltTab |
+
+Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Limpieza) se prenden o apagan en el menú **Funciones** de Dictado. Qué hace cada una, qué archivos toca y cómo quitarla del todo está en [`docs/FUNCIONES.md`](docs/FUNCIONES.md).
 
 ### La isla
 
@@ -148,6 +153,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `Privacidad.swift`, `Niveles.swift` | Cámara y micrófono en uso; volumen y brillo |
 | `Salud.swift`, `VistaSalud.swift`, `Papelera.swift`, `ICloud.swift` | Medidor, escáner de limpieza, bitácora para deshacer, "Liberar ya" y descargas de iCloud |
 | `HUD.swift`, `Estilos*.swift`, `Diseno.swift` | Indicador de dictado y lenguaje visual |
+| `TeclaHyper.swift`, `Ventanas.swift`, `BuscadorVentanas.swift`, `VistaBuscador.swift` | Tecla hyper, ventanas por teclado y buscador de ventanas (pruebas en `PruebasTeclado.swift`) |
 | `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--vista-isla salida.png`) |
 
 ## Desinstalar
