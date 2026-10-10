@@ -241,7 +241,47 @@ enum CLI {
             }
         }
 
+        // Pulido con IA local, sin abrir la app: --pulir "texto" [--app bundle.id] [--titulo "título de la pestaña"]
+        // [--vocabulario "Término1,Término2"] (sin --vocabulario usa tu vocabulario.txt)
+        if let texto = valor("--pulir") {
+            print("FoundationModels:", IALocal.problema ?? "disponible")
+            let modo = TablaModos.modo(app: valor("--app"), titulo: valor("--titulo"))
+            let vocabulario = valor("--vocabulario").map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+                ?? ajustes.vocabulario()
+            let t0 = Date()
+            let r = await PulidoIA.pulir(texto, modo: modo, vocabulario: vocabulario)
+            print(String(format: "[%@ · %.2f s · %@]", modo.rawValue, Date().timeIntervalSince(t0), r.motivo))
+            print(r.texto)
+            return 0
+        }
+
+        // Acciones sobre texto seleccionado, sin panel: --accion traducir|corregir|resumir|formal "texto"
+        if let i = args.firstIndex(of: "--accion"), i + 2 < args.count {
+            let nombres: [String: AccionTexto] = ["traducir": .traducir, "corregir": .corregir, "resumir": .resumir, "formal": .formal]
+            guard let accion = nombres[args[i + 1]] else {
+                print("acciones: traducir, corregir, resumir, formal")
+                return 64
+            }
+            let texto = args[i + 2]
+            let t0 = Date()
+            do {
+                let (resultado, detalle) = accion == .traducir
+                    ? try await AccionesTexto.traducir(texto) : try await AccionesTexto.transformar(texto, accion)
+                print(String(format: "[%@ · %.2f s]", detalle, Date().timeIntervalSince(t0)))
+                print(resultado)
+                return 0
+            } catch {
+                print("[\(accion.titulo)] \(AccionesTexto.mensaje(error))")
+                return 1
+            }
+        }
+
+        if args.contains("--probar-acciones") {
+            return await probarAcciones() ? 0 : 1
+        }
+
         print("uso: Dictado [--idiomas] [--archivo|--vivo audio.wav [--motor speech|dictation] [--idioma es-US] [--ritmo real]]")
+        print("     Dictado --pulir \"texto\" [--app bundle.id] [--titulo \"pestaña\"] · --accion traducir|corregir|resumir|formal \"texto\"")
         return 64
     }
 }

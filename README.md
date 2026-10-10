@@ -25,6 +25,8 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Captura** | **⌘↩**. Área, ventana, pantalla, texto de una zona (OCR), grabación y temporizador. Destino: portapapeles, Escritorio, Descargas o una carpeta. | CleanShot X (lo básico), TextSniper |
 | **Isla del notch** | Siempre visible. Al pasar el mouse se abre. | Atoll, NotchNook, Boring Notch |
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
+| **Dictado pulido con IA local** (opcional) | Automático al dictar: el modelo de Apple en el Mac quita muletillas y arregla la puntuación, con el tono de la app al frente (chat, correo, prompt, documento). [Ficha](docs/FUNCIONES.md#dictado-pulido-con-ia-local) | Wispr Flow, superwhisper (modos) |
+| **Acciones sobre texto seleccionado** (opcional) | **Hyper + T** sobre un texto: traducir, corregir, resumir, más formal, mandar a Claude o guardar como idea; luego Reemplazar o Copiar. [Ficha](docs/FUNCIONES.md#acciones-sobre-texto-seleccionado) | PopClip, Raycast AI |
 
 ### La isla
 
@@ -122,6 +124,7 @@ Después de cambiar un ajuste con `defaults`, reinicia Dictado (menú → Salir 
 ## Privacidad
 
 - La voz se transcribe **en el Mac** con el modelo de Apple (SpeechAnalyzer) y no se guarda ningún audio.
+- El pulido del dictado y las acciones sobre texto (traducir, corregir, resumir) también corren en el Mac, con el modelo y la traducción de Apple. Solo "A Claude" manda el texto a Claude, cuando lo eliges.
 - El portapapeles vive en `~/Library/Application Support/Dictado/Portapapeles` y salta lo que las apps marcan como contraseña.
 - Lo único que sale a internet es la consulta de la carátula de Spotify (el oEmbed público de Spotify).
 - La parte de Claude Code **solo lee** `~/.claude/sessions` y los transcriptos; nunca escribe ahí.

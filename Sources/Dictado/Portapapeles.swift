@@ -56,6 +56,7 @@ final class Historial {
     @ObservationIgnored private let carpeta: URL?
     @ObservationIgnored private var conteo: Int
     @ObservationIgnored private var temporizador: Timer?
+    @ObservationIgnored private var pausaHasta: Date?
     @ObservationIgnored private var imagenes: [UUID: NSImage] = [:]
     @ObservationIgnored private var miniaturas: [UUID: NSImage] = [:]
 
@@ -101,9 +102,18 @@ final class Historial {
 
     // MARK: Captura
 
+    /// Pausa la captura mientras un módulo usa el portapapeles de paso (⌘C simulado para leer una selección,
+    /// pegar un resultado y devolver lo que había): lo que cambie durante la pausa no entra al historial.
+    /// Se reanuda sola a los 5 s por si quien pausó nunca reanuda.
+    func pausar(_ si: Bool) {
+        conteo = pb.changeCount
+        pausaHasta = si ? Date().addingTimeInterval(5) : nil
+    }
+
     func revisar(app: NSRunningApplication? = NSWorkspace.shared.frontmostApplication) {
         guard pb.changeCount != conteo else { return }
         conteo = pb.changeCount
+        if let pausaHasta, Date() < pausaHasta { return }
         let tipos = Set((pb.types ?? []).map(\.rawValue))
         guard !tipos.contains(Self.marca.rawValue), tipos.isDisjoint(with: Self.tiposPrivados) else { return }
         if let id = app?.bundleIdentifier, Self.appsPrivadas.contains(id) { return }
