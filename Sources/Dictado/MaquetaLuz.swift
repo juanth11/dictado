@@ -7,54 +7,48 @@ import SwiftUI
 /// un arco de medidor para el Mac y datos con la unidad en versalitas. `Dictado --vista-luz salida.png`
 @MainActor
 func hojaLuz(_ destino: URL) -> Bool {
+    maqueta = .ejemplo()
     let fondo = fondoDeMuestra()
-    let caratula = L.caratulaDeMuestra()
+    let notch = CGSize(width: 186, height: 32)
 
     func escena<C: View>(alto: CGFloat, isla: CGSize, radio: CGFloat, @ViewBuilder _ contenido: () -> C) -> some View {
         ZStack(alignment: .top) {
             Image(nsImage: fondo).resizable().scaledToFill().frame(width: 760, height: alto, alignment: .top).clipped()
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)
-            ZStack(alignment: .top) {
-                FormaIsla(radio: radio).fill(.black)
-                contenido().clipShape(FormaIsla(radio: radio))
-            }
-            .frame(width: isla.width, height: isla.height)
-            .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+            IslaLuz(tamano: isla, radio: radio) { contenido() }
         }
         .frame(width: 760, height: alto)
         .clipShape(RoundedRectangle(cornerRadius: 12))
     }
-    let w = 186 + 2 * FormaIsla.hombro
-    func aviso(_ ala: CGFloat, _ alto: CGFloat) -> CGSize { CGSize(width: w + 2 * ala, height: 32 + alto) }
-    let abierta = CGSize(width: 680, height: 250)
+    let t = TamanosLuz(notch: notch)
 
     let hoja = VStack(spacing: 14) {
         HStack(spacing: 14) {
-            escena(alto: 150, isla: aviso(150, 50), radio: 26) { LNivel(tipo: .volumen) }
-            escena(alto: 150, isla: aviso(150, 50), radio: 26) { LNivel(tipo: .brillo) }
+            escena(alto: 150, isla: t.nivel, radio: 26) { LNivel(tipo: .volumen) }
+            escena(alto: 150, isla: t.nivel, radio: 26) { LNivel(tipo: .brillo) }
         }
         HStack(spacing: 14) {
-            escena(alto: 150, isla: aviso(150, 50), radio: 26) { LNivel(tipo: .silencio) }
-            escena(alto: 150, isla: aviso(70, 0), radio: 10) { LCarga() }
+            escena(alto: 150, isla: t.nivel, radio: 26) { LNivel(tipo: .silencio) }
+            escena(alto: 150, isla: t.carga, radio: 10) { LCarga() }
         }
         HStack(spacing: 14) {
-            escena(alto: 150, isla: aviso(165, 60), radio: 26) { LReunion() }
-            escena(alto: 150, isla: aviso(135, 60), radio: 26) { LCancion(caratula: caratula) }
+            escena(alto: 150, isla: t.reunion, radio: 26) { LReunion() }
+            escena(alto: 150, isla: t.cancion, radio: 26) { LCancion() }
         }
         HStack(spacing: 14) {
-            escena(alto: 150, isla: aviso(155, 60), radio: 26) {
+            escena(alto: 150, isla: t.aviso, radio: 26) {
                 LAviso(color: L.naranja, icono: .estrella, rotulo: "Necesita tu permiso", titulo: "Rediseño del sitio web",
                        detalle: "Terminal · swift build -c release", boton: "Responder")
             }
-            escena(alto: 150, isla: aviso(155, 60), radio: 26) {
+            escena(alto: 150, isla: t.aviso, radio: 26) {
                 LAviso(color: L.ambar, icono: .simbolo("server.rack"), rotulo: "Alerta · Hermes", titulo: "resumen-finanzas falló",
                        detalle: "el banco no respondió", boton: "Ver")
             }
         }
-        escena(alto: 300, isla: abierta, radio: 34) { LAbierta(caratula: caratula, pestana: .agentes) }
-        escena(alto: 300, isla: abierta, radio: 34) { LAbierta(caratula: caratula, pestana: .agente) }
-        escena(alto: 300, isla: abierta, radio: 34) { LAbierta(caratula: caratula, pestana: .agenda) }
-        escena(alto: 300, isla: abierta, radio: 34) { LAbierta(caratula: caratula, pestana: .mac) }
+        escena(alto: 300, isla: t.abierta, radio: 34) { LAbierta(pestana: .agentes) }
+        escena(alto: 300, isla: t.abierta, radio: 34) { LAbierta(pestana: .agente) }
+        escena(alto: 300, isla: t.abierta, radio: 34) { LAbierta(pestana: .agenda) }
+        escena(alto: 300, isla: t.abierta, radio: 34) { LAbierta(pestana: .mac) }
     }
     .padding(14)
     .background(Color(white: 0.08))
@@ -67,6 +61,64 @@ func hojaLuz(_ destino: URL) -> Bool {
     return (try? png.write(to: destino)) != nil
 }
 
+/// Tamaños de la isla en la variante Luz según el notch.
+struct TamanosLuz {
+    let notch: CGSize
+    private var w: CGFloat { notch.width + 2 * FormaIsla.hombro }
+    private func aviso(_ ala: CGFloat, _ alto: CGFloat) -> CGSize { CGSize(width: w + 2 * ala, height: notch.height + alto) }
+    var nivel: CGSize { aviso(150, 50) }
+    var carga: CGSize { aviso(70, 0) }
+    var reunion: CGSize { aviso(165, 60) }
+    var cancion: CGSize { aviso(135, 60) }
+    var aviso: CGSize { aviso(155, 60) }
+    var abierta: CGSize { CGSize(width: 680, height: 250) }
+}
+
+/// La isla negra con su contenido recortado a la forma y la sombra.
+private struct IslaLuz<C: View>: View {
+    let tamano: CGSize
+    let radio: CGFloat
+    let contenido: C
+
+    init(tamano: CGSize, radio: CGFloat, @ViewBuilder contenido: () -> C) {
+        self.tamano = tamano
+        self.radio = radio
+        self.contenido = contenido()
+    }
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            FormaIsla(radio: radio).fill(.black)
+            contenido.clipShape(FormaIsla(radio: radio))
+        }
+        .frame(width: tamano.width, height: tamano.height)
+        .shadow(color: .black.opacity(0.35), radius: 18, y: 8)
+    }
+}
+
+/// Escenas de la comparación con el setup real: volumen, aviso de Claude, abierta en Agentes, Agenda y Mac.
+@MainActor
+func escenasLuz(_ real: SetupReal) -> [AnyView] {
+    let t = TamanosLuz(notch: real.notch)
+    var escenas: [AnyView] = [
+        AnyView(escenaReal(real, alto: 150) { IslaLuz(tamano: t.nivel, radio: 26) { LNivel(tipo: maqueta.silencio ? .silencio : .volumen) } }),
+    ]
+    if let s = maqueta.sesionAviso {
+        let espera = s.estado == .esperando
+        escenas.append(AnyView(escenaReal(real, alto: 150) {
+            IslaLuz(tamano: t.aviso, radio: 26) {
+                LAviso(color: L.naranja, icono: .estrella, rotulo: espera ? "Necesita tu permiso" : "Terminó · 4:12",
+                       titulo: s.nombre, detalle: espera ? s.espera : (s.resumen.isEmpty ? "Lista" : s.resumen),
+                       boton: espera ? "Responder" : "Ver")
+            }
+        }))
+    }
+    for p in [LAbierta.Pestana.agentes, .agenda, .mac] {
+        escenas.append(AnyView(escenaReal(real, alto: 300) { IslaLuz(tamano: t.abierta, radio: 34) { LAbierta(pestana: p) } }))
+    }
+    return escenas
+}
+
 // MARK: Lenguaje
 
 private enum L {
@@ -77,19 +129,22 @@ private enum L {
     static let rojo = Color(red: 1.0, green: 0.34, blue: 0.32)
     static let violeta = Color(red: 0.62, green: 0.45, blue: 1.0)
     static let rosa = Color(red: 1.0, green: 0.40, blue: 0.62)
-    static let album = [Color(red: 1.0, green: 0.56, blue: 0.30), rosa, violeta]
+    @MainActor static var album: [Color] { maqueta.colores }
+    @MainActor static var acento: Color { maqueta.colores.count > 1 ? maqueta.colores[1] : maqueta.colores[0] }
 
-    /// Carátula de ejemplo con colores vivos (para ver cómo la isla toma su luz).
-    @MainActor static func caratulaDeMuestra() -> NSImage {
-        let img = NSImage(size: NSSize(width: 300, height: 300))
-        img.lockFocus()
-        NSGradient(colors: [NSColor(red: 1.0, green: 0.62, blue: 0.32, alpha: 1), NSColor(red: 1.0, green: 0.38, blue: 0.58, alpha: 1),
-                            NSColor(red: 0.50, green: 0.36, blue: 0.98, alpha: 1)])?
-            .draw(in: NSRect(x: 0, y: 0, width: 300, height: 300), angle: -60)
-        NSGradient(colors: [NSColor(white: 1, alpha: 0.55), NSColor(white: 1, alpha: 0)])?
-            .draw(fromCenter: NSPoint(x: 110, y: 200), radius: 0, toCenter: NSPoint(x: 110, y: 200), radius: 140, options: [])
-        img.unlockFocus()
-        return img
+    /// "8:53 – 9:38 p. m."
+    static func franja(_ inicio: Date, _ fin: Date) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_CO")
+        f.dateFormat = "h:mm"
+        let a = f.string(from: inicio)
+        f.dateFormat = "h:mm a"
+        return a + " – " + f.string(from: fin)
+    }
+
+    static func servicio(_ enlace: URL?) -> String {
+        let h = enlace?.host ?? ""
+        return h.contains("zoom") ? "Zoom" : h.contains("teams") ? "Teams" : h.contains("meet") ? "Meet" : "Reunión"
     }
 
     static func color(_ colores: [Color], _ t: Double) -> Color {
@@ -320,6 +375,7 @@ private struct LNivel: View {
 
     var body: some View {
         let colores: [Color] = tipo == .brillo ? Paleta.brillo : tipo == .volumen ? Paleta.volumen : [L.rojo]
+        let valor = tipo == .brillo ? maqueta.brillo : maqueta.volumen
         ZStack {
             if tipo != .silencio { LLuz(colores: colores, alto: 0.7, fuerza: 0.55) }
             LFila {
@@ -332,17 +388,17 @@ private struct LNivel: View {
                 }
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 4) {
-                        Image(systemName: tipo == .brillo ? "display" : "airpodspro").font(.system(size: 9.5, weight: .semibold))
-                        Text(tipo == .brillo ? "Pantalla integrada" : "AirPods Pro").font(.system(size: 10.5, weight: .medium))
+                        Image(systemName: tipo == .brillo ? "display" : maqueta.salidaSimbolo).font(.system(size: 9.5, weight: .semibold))
+                        Text(tipo == .brillo ? "Pantalla integrada" : maqueta.salida).font(.system(size: 10.5, weight: .medium)).lineLimit(1)
                     }
                     .foregroundStyle(.white.opacity(0.55))
-                    LBarraLED(valor: tipo == .brillo ? 0.81 : 0.62, colores: colores, apagada: tipo == .silencio)
+                    LBarraLED(valor: valor, colores: colores, apagada: tipo == .silencio)
                 }
                 Spacer(minLength: 4)
                 if tipo == .silencio {
                     Text("Silencio").font(.system(size: 15, weight: .semibold)).foregroundStyle(L.rojo)
                 } else {
-                    LDato(numero: tipo == .brillo ? "81" : "62", unidad: "%", tamano: 30, peso: .light)
+                    LDato(numero: "\(Int((valor * 100).rounded()))", unidad: "%", tamano: 30, peso: .light)
                 }
             }
         }
@@ -369,36 +425,37 @@ private struct LCarga: View {
 
 private struct LReunion: View {
     var body: some View {
-        ZStack {
-            LLuz(colores: [L.azul], alto: 0.75, fuerza: 0.5)
-            LFila {
-                NumeroPuntos(texto: "4:12", punto: 3.0, paso: 4.0, color: L.azul.mix(with: .white, by: 0.35))
-                VStack(alignment: .leading, spacing: 2) {
-                    LRotulo(texto: "Empieza en · Meet", color: L.azul)
-                    Text("Revisión de contrato").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                    Text("8:53 – 9:38 p. m.").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+        if let e = maqueta.reunion {
+            ZStack {
+                LLuz(colores: [L.azul], alto: 0.75, fuerza: 0.5)
+                LFila {
+                    NumeroPuntos(texto: Tiempo.cuentaRegresiva(hasta: e.inicio, desde: Date()), punto: 3.0, paso: 4.0,
+                                 color: L.azul.mix(with: .white, by: 0.35))
+                    VStack(alignment: .leading, spacing: 2) {
+                        LRotulo(texto: "Empieza en · " + L.servicio(e.enlace), color: L.azul)
+                        Text(e.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                        Text(L.franja(e.inicio, e.fin)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
+                    }
+                    Spacer(minLength: 6)
+                    LBoton(texto: "Unirse", color: L.verde, icono: "video.fill")
                 }
-                Spacer(minLength: 6)
-                LBoton(texto: "Unirse", color: L.verde, icono: "video.fill")
             }
         }
     }
 }
 
 private struct LCancion: View {
-    let caratula: NSImage
-
     var body: some View {
         ZStack {
             LLuz(colores: L.album, alto: 0.8, fuerza: 0.6)
             LFila {
-                Image(nsImage: caratula).resizable().frame(width: 40, height: 40)
+                Image(nsImage: maqueta.caratula).resizable().frame(width: 40, height: 40)
                     .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    .shadow(color: L.rosa.opacity(0.6), radius: 8)
+                    .shadow(color: L.acento.opacity(0.6), radius: 8)
                 VStack(alignment: .leading, spacing: 1) {
-                    LRotulo(texto: "Ahora suena", color: L.rosa.mix(with: .white, by: 0.3))
-                    Text("Weightless").font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
-                    Text("Marconi Union").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+                    LRotulo(texto: maqueta.sonando ? "Ahora suena" : "En pausa", color: L.acento.mix(with: .white, by: 0.3))
+                    Text(maqueta.cancion).font(.system(size: 14, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(maqueta.artista).font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).lineLimit(1)
                 }
                 Spacer(minLength: 6)
                 LOnda(colores: L.album)
@@ -407,7 +464,7 @@ private struct LCancion: View {
     }
 }
 
-/// Onda de la música: barras del color de la carátula con brillo.
+/// Onda de la música: barras del color de la carátula con brillo (planas si está en pausa).
 private struct LOnda: View {
     let colores: [Color]
     var alturas: [CGFloat] = [8, 15, 22, 12, 18, 9, 14]
@@ -416,7 +473,8 @@ private struct LOnda: View {
         HStack(alignment: .center, spacing: 2.5) {
             ForEach(alturas.indices, id: \.self) { i in
                 let c = L.color(colores, Double(i) / Double(alturas.count - 1))
-                Capsule().fill(c).frame(width: 3, height: alturas[i]).shadow(color: c.opacity(0.8), radius: 3)
+                Capsule().fill(c).frame(width: 3, height: maqueta.sonando ? alturas[i] : 4)
+                    .shadow(color: c.opacity(0.8), radius: 3)
             }
         }
         .frame(height: 24)
@@ -452,10 +510,11 @@ private struct LAviso: View {
 
 private struct LAbierta: View {
     enum Pestana { case agentes, agente, agenda, mac }
-    let caratula: NSImage
     let pestana: Pestana
 
     var body: some View {
+        let d = maqueta
+        let alerta = d.agente.map { $0.estado == .alerta || $0.estado == .caido } ?? false
         ZStack {
             // La música tiñe el borde de abajo a la izquierda; la pestaña, a la derecha.
             LLuz(colores: L.album, alto: 0.55, fuerza: 0.55, centro: 0.22, ancho: 0.5)
@@ -463,12 +522,14 @@ private struct LAbierta: View {
             VStack(spacing: 0) {
                 Color.clear.frame(height: 32)
                 HStack(alignment: .top, spacing: 24) {
-                    LReproductor(caratula: caratula).frame(width: 250)
+                    LReproductor().frame(width: 250)
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 4) {
-                            LPildora(titulo: "Agentes", cuenta: 4, punto: L.naranja, activa: pestana == .agentes || pestana == .agente)
-                            LPildora(titulo: "Agenda", cuenta: 2, activa: pestana == .agenda)
-                            LPildora(titulo: "Mac", punto: L.rojo, activa: pestana == .mac)
+                            LPildora(titulo: "Agentes", cuenta: d.claude.sesiones.count + (d.agente == nil ? 0 : 1),
+                                     punto: !d.claude.esperando.isEmpty ? L.naranja : alerta ? L.ambar : nil,
+                                     activa: pestana == .agentes || pestana == .agente)
+                            LPildora(titulo: "Agenda", cuenta: d.reunion == nil ? 0 : 1, activa: pestana == .agenda)
+                            LPildora(titulo: "Mac", punto: color(d.salud.diagnostico.gravedad), activa: pestana == .mac)
                             Spacer()
                         }
                         switch pestana {
@@ -489,11 +550,19 @@ private struct LAbierta: View {
 
     private var luz: Color {
         switch pestana {
-        case .agentes: return L.naranja
+        case .agentes: return maqueta.claude.esperando.isEmpty ? L.naranja.opacity(0.7) : L.naranja
         case .agente: return L.verde
         case .agenda: return L.azul
-        case .mac: return L.rojo
+        case .mac: return color(maqueta.salud.diagnostico.gravedad)
         }
+    }
+}
+
+private func color(_ g: Gravedad) -> Color {
+    switch g {
+    case .bien: return L.verde
+    case .atento: return L.ambar
+    case .mal: return L.rojo
     }
 }
 
@@ -518,17 +587,17 @@ private struct LPildora: View {
 
 /// Reproductor de iOS: carátula, título, onda; progreso del color del álbum con su punta; controles del sistema.
 private struct LReproductor: View {
-    let caratula: NSImage
-
     var body: some View {
+        let d = maqueta
+        let avance = d.duracion > 0 ? min(1, d.posicion / d.duracion) : 0
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(nsImage: caratula).resizable().frame(width: 58, height: 58)
+                Image(nsImage: d.caratula).resizable().frame(width: 58, height: 58)
                     .clipShape(RoundedRectangle(cornerRadius: 13, style: .continuous))
-                    .shadow(color: L.rosa.opacity(0.55), radius: 12, y: 3)
+                    .shadow(color: L.acento.opacity(0.55), radius: 12, y: 3)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Weightless").font(.system(size: 15, weight: .semibold)).foregroundStyle(.white)
-                    Text("Marconi Union").font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.6))
+                    Text(d.cancion).font(.system(size: 15, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(d.artista).font(.system(size: 12.5)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 LOnda(colores: L.album, alturas: [7, 13, 19, 10, 15])
@@ -538,16 +607,16 @@ private struct LReproductor: View {
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.18)).frame(height: 4)
                         Capsule().fill(LinearGradient(colors: L.album, startPoint: .leading, endPoint: .trailing))
-                            .frame(width: g.size.width * 0.31, height: 4)
-                            .shadow(color: L.rosa.opacity(0.8), radius: 4)
-                        Circle().fill(.white).frame(width: 10, height: 10).shadow(color: L.rosa, radius: 5)
-                            .offset(x: g.size.width * 0.31 - 5)
+                            .frame(width: g.size.width * avance, height: 4)
+                            .shadow(color: L.acento.opacity(0.8), radius: 4)
+                        Circle().fill(.white).frame(width: 10, height: 10).shadow(color: L.acento, radius: 5)
+                            .offset(x: g.size.width * avance - 5)
                     }
                     .frame(maxHeight: .infinity)
                 }
                 .frame(height: 10)
                 HStack {
-                    Text("2:31"); Spacer(); Text("-5:29")
+                    Text(Tiempo.reloj(d.posicion)); Spacer(); Text("-" + Tiempo.reloj(d.duracion - d.posicion))
                 }
                 .font(.system(size: 10, weight: .medium)).monospacedDigit().foregroundStyle(.white.opacity(0.45))
             }
@@ -555,7 +624,7 @@ private struct LReproductor: View {
                 Spacer()
                 Image(systemName: "backward.fill").font(.system(size: 19))
                 Spacer()
-                Image(systemName: "pause.fill").font(.system(size: 28))
+                Image(systemName: d.sonando ? "pause.fill" : "play.fill").font(.system(size: 28))
                 Spacer()
                 Image(systemName: "forward.fill").font(.system(size: 19))
                 Spacer()
@@ -565,69 +634,129 @@ private struct LReproductor: View {
     }
 }
 
+/// Cuánto corrió hoy un agente: corridas de hoy, las que faltan hoy y la próxima.
+private struct DiaAgente {
+    let corridas: [AgentesRemotos.Tarea]
+    let faltan: Int
+    let proxima: AgentesRemotos.Tarea?
+
+    init(_ a: AgentesRemotos.Agente) {
+        let cal = Calendar.current
+        let activas = a.tareas.filter(\.activa)
+        corridas = activas.filter { $0.ultima.map(cal.isDateInToday) ?? false }.sorted { $0.ultima! > $1.ultima! }
+        faltan = activas.filter { t in t.proxima.map { cal.isDateInToday($0) && $0 > Date() } ?? false }.count
+        proxima = activas.filter { ($0.proxima ?? .distantPast) > Date() }.min { $0.proxima! < $1.proxima! }
+    }
+
+    var total: Int { corridas.count + faltan }
+    var avance: Double { total == 0 ? 0 : Double(corridas.count) / Double(total) }
+}
+
 /// Pestaña Agentes: la sesión que te espera en una tarjeta encendida; las demás en filas; Hermes con su día
 /// en una cápsula líquida.
 private struct LAgentes: View {
     var body: some View {
+        let sesiones = maqueta.claude.sesiones
+        let espera = sesiones.first { $0.estado == .esperando }
+        let resto = sesiones.filter { $0.id != espera?.id }
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                LInsignia(icono: .estrella, color: L.naranja, lado: 28)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Rediseño del sitio web").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                    Text("Necesita tu permiso · swift build").font(.system(size: 10.5)).foregroundStyle(L.naranja).lineLimit(1)
-                }
-                Spacer(minLength: 4)
-                LBoton(texto: "Responder", color: L.naranja).scaleEffect(0.86)
-            }
-            .padding(.horizontal, 9).padding(.vertical, 7)
-            .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(LinearGradient(colors: [L.naranja.opacity(0.24), L.naranja.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(L.naranja.opacity(0.3), lineWidth: 1))
-            }
-            HStack(spacing: 10) {
-                EstrellaClaude().fill(L.naranja).frame(width: 14, height: 14).frame(width: 28)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Informe trimestral").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white)
-                    Text("Editando HeroSection.tsx · 4 min").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45))
-                }
-                Spacer(minLength: 4)
-                LDato(numero: "768", unidad: "k", color: L.ambar, tamano: 13, peso: .semibold)
-            }
-            .padding(.horizontal, 9)
-            HStack(spacing: 10) {
-                LInsignia(icono: .simbolo("server.rack"), color: L.verde, lado: 28)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text("Hermes").font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white)
-                        Text("5 de 6 hoy · próxima 10:19 p. m.").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45))
-                        Spacer()
-                    }
-                    LLiquido(valor: 5 / 6, colores: [L.verde.mix(with: .white, by: 0.35), L.verde], alto: 8)
-                }
-            }
-            .padding(.horizontal, 9)
+            if let s = espera { tarjeta(s) }
+            ForEach(Array(resto.prefix(espera == nil ? 3 : 2))) { fila($0) }
+            if let a = maqueta.agente { hermes(a) }
         }
     }
+
+    private func tarjeta(_ s: SesionesClaude.Sesion) -> some View {
+        HStack(spacing: 10) {
+            LInsignia(icono: .estrella, color: L.naranja, lado: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(s.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(Tiempo.sesion(s)).font(.system(size: 10.5)).foregroundStyle(L.naranja).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            LBoton(texto: "Responder", color: L.naranja).scaleEffect(0.86)
+        }
+        .padding(.horizontal, 9).padding(.vertical, 7)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(LinearGradient(colors: [L.naranja.opacity(0.24), L.naranja.opacity(0.08)], startPoint: .leading, endPoint: .trailing))
+                .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(L.naranja.opacity(0.3), lineWidth: 1))
+        }
+    }
+
+    private func fila(_ s: SesionesClaude.Sesion) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                switch s.estado {
+                case .trabajando: EstrellaClaude().fill(L.naranja).frame(width: 14, height: 14)
+                case .esperando: Circle().fill(L.naranja).frame(width: 8, height: 8).shadow(color: L.naranja, radius: 4)
+                case .lista: Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.4))
+                }
+            }
+            .frame(width: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(s.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                Text(Tiempo.sesion(s)).font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.45)).lineLimit(1)
+            }
+            Spacer(minLength: 4)
+            if s.contexto > 0 {
+                LDato(numero: "\(s.contexto / 1000)", unidad: "k", color: s.contexto > 600_000 ? L.ambar : .white.opacity(0.35),
+                      tamano: 13, peso: .semibold)
+            }
+        }
+        .padding(.horizontal, 9)
+    }
+
+    private func hermes(_ a: AgentesRemotos.Agente) -> some View {
+        let dia = DiaAgente(a)
+        let mal = !a.alertas.isEmpty || a.estado == .caido
+        let c = mal ? (a.estado == .caido ? L.rojo : L.ambar) : L.verde
+        let detalle = a.alertas.first ?? a.error ?? ("\(dia.corridas.count) de \(dia.total) hoy"
+            + (dia.proxima?.proxima).map { " · próxima " + Tiempo.hora($0) }.orEmpty)
+        return HStack(spacing: 10) {
+            LInsignia(icono: .simbolo("server.rack"), color: c, lado: 28)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 6) {
+                    Text(a.nombre).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(.white)
+                    Text(detalle).font(.system(size: 10.5)).foregroundStyle(mal ? c : .white.opacity(0.45)).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                LLiquido(valor: max(0.04, dia.avance), colores: [c.mix(with: .white, by: 0.35), c], alto: 8)
+            }
+        }
+        .padding(.horizontal, 9)
+    }
+}
+
+private extension Optional where Wrapped == String {
+    var orEmpty: String { self ?? "" }
 }
 
 /// El día de Hermes: estado, cápsula líquida con lo que ya corrió hoy, rayitas de cada corrida y sus tareas.
 private struct LHermes: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            HStack(spacing: 8) {
-                Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.45))
-                Text("Hermes").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white)
-                LRotulo(texto: "En línea", color: L.verde)
-                Spacer()
-                LDato(numero: "10", unidad: "tareas", color: .white.opacity(0.75), tamano: 13, peso: .semibold)
-            }
-            LLiquido(valor: 0.86, colores: [L.verde.mix(with: .white, by: 0.4), L.verde], alto: 22, icono: "checkmark", texto: "5 de 6")
-            LTiras()
-            VStack(spacing: 4) {
-                LTarea(nombre: "morning-briefing", hora: "8:03 a. m.", color: L.verde)
-                LTarea(nombre: "finanzas-diario", hora: "7:01 a. m.", color: L.verde)
-                LTarea(nombre: "revisar-correo", hora: "10:19 p. m.", color: .white.opacity(0.5), proxima: true)
+        if let a = maqueta.agente {
+            let dia = DiaAgente(a)
+            VStack(alignment: .leading, spacing: 9) {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold)).foregroundStyle(.white.opacity(0.45))
+                    Text(a.nombre).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white)
+                    LRotulo(texto: a.estado == .ok ? "En línea" : a.estado == .caido ? "Sin conexión" : "Alerta",
+                            color: a.estado == .ok ? L.verde : a.estado == .caido ? L.rojo : L.ambar)
+                    Spacer()
+                    LDato(numero: "\(a.tareas.filter(\.activa).count)", unidad: "tareas", color: .white.opacity(0.75), tamano: 13, peso: .semibold)
+                }
+                LLiquido(valor: max(0.08, dia.avance), colores: [L.verde.mix(with: .white, by: 0.4), L.verde], alto: 22,
+                         icono: "checkmark", texto: "\(dia.corridas.count) de \(dia.total)")
+                LTiras(horas: dia.corridas.compactMap(\.ultima).map(LTiras.hora))
+                VStack(spacing: 4) {
+                    ForEach(dia.corridas.prefix(2), id: \.nombre) { t in
+                        LTarea(nombre: t.nombre, hora: t.ultima.map(Tiempo.hora) ?? "", color: t.color == .white ? .white : L.verde)
+                    }
+                    if let p = dia.proxima, let cuando = p.proxima {
+                        LTarea(nombre: p.nombre, hora: Tiempo.hora(cuando), color: .white.opacity(0.5), proxima: true)
+                    }
+                }
             }
         }
     }
@@ -635,9 +764,14 @@ private struct LHermes: View {
 
 /// Rayitas del día (como los gráficos del reloj): una por corrida, con "12 A. M." y "AHORA" en los extremos.
 private struct LTiras: View {
+    let horas: [Double]
+
+    static func hora(_ d: Date) -> Double {
+        d.timeIntervalSince(Calendar.current.startOfDay(for: d)) / 3600
+    }
+
     var body: some View {
-        let corridas: [Double] = [3.0, 3.5, 7.0, 7.03, 8.05]
-        let ahora = 20.6
+        let ahora = Self.hora(Date())
         VStack(spacing: 3) {
             GeometryReader { g in
                 ZStack(alignment: .leading) {
@@ -647,7 +781,7 @@ private struct LTiras: View {
                             Spacer(minLength: 0)
                         }
                     }
-                    ForEach(corridas, id: \.self) { h in
+                    ForEach(horas, id: \.self) { h in
                         Capsule().fill(L.verde).frame(width: 2.5, height: 14).shadow(color: L.verde, radius: 3)
                             .offset(x: g.size.width * h / 24)
                     }
@@ -657,7 +791,7 @@ private struct LTiras: View {
             }
             .frame(height: 16)
             HStack {
-                Text("12 A. M."); Spacer(); Text("6 A. M."); Spacer(); Text("12 M."); Spacer(); Text("6 P. M."); Spacer(); Text("AHORA")
+                Text("12 A. M."); Spacer(); Text("6 A. M."); Spacer(); Text("12 M."); Spacer(); Text("6 P. M."); Spacer(); Text("12 A. M.")
             }
             .font(.system(size: 8, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
         }
@@ -683,44 +817,63 @@ private struct LTarea: View {
     }
 }
 
-/// Agenda: la cuenta regresiva en puntos, la reunión y Unirse; abajo el día como cápsulas de luz.
+/// Agenda: la cuenta regresiva en puntos, la reunión y Unirse; abajo las próximas 4 horas con las reuniones como
+/// cápsulas de luz.
 private struct LAgenda: View {
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 12) {
-                NumeroPuntos(texto: "4:12", punto: 2.6, paso: 3.6, color: L.azul.mix(with: .white, by: 0.35))
-                VStack(alignment: .leading, spacing: 2) {
-                    LRotulo(texto: "Empieza en · Meet", color: L.azul)
-                    Text("Revisión de contrato").font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
-                        .fixedSize()
-                    Text("8:53 – 9:38 p. m.").font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
-                }
-                Spacer(minLength: 4)
-                LBoton(texto: "Unirse", color: L.verde, icono: "video.fill")
-            }
-            VStack(spacing: 4) {
-                GeometryReader { g in
-                    let w = g.size.width
-                    let x = { (h: Double) in w * (h - 20) / 4 }   // lo que queda del día: de 8 p. m. a 12 a. m.
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(.white.opacity(0.07)).frame(height: 18)
-                        Capsule().fill(.white.opacity(0.1)).frame(width: x(20.82), height: 18)   // lo que ya pasó
-                        LBloque(color: L.azul, texto: "Contrato").frame(width: x(21.63) - x(20.88)).offset(x: x(20.88))
-                        LBloque(color: L.naranja, texto: "Equipo").frame(width: x(23.95) - x(23.45)).offset(x: x(23.45))
-                        Capsule().fill(.white).frame(width: 2, height: 24).offset(x: x(20.82)).shadow(color: .white, radius: 3)
+        if let e = maqueta.reunion {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 12) {
+                    NumeroPuntos(texto: Tiempo.cuentaRegresiva(hasta: e.inicio, desde: Date()), punto: 2.6, paso: 3.6,
+                                 color: L.azul.mix(with: .white, by: 0.35))
+                    VStack(alignment: .leading, spacing: 2) {
+                        LRotulo(texto: "Empieza en · " + L.servicio(e.enlace), color: L.azul)
+                        Text(e.titulo).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                        Text(L.franja(e.inicio, e.fin)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5))
                     }
-                    .frame(maxHeight: .infinity)
+                    Spacer(minLength: 4)
+                    LBoton(texto: "Unirse", color: L.verde, icono: "video.fill")
                 }
-                .frame(height: 24)
-                HStack {
-                    Text("8 P. M."); Spacer(); Text("9"); Spacer(); Text("10"); Spacer(); Text("11"); Spacer(); Text("12 A. M.")
+                riel([e])
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 6) {
+                LRotulo(texto: "Hoy", color: L.azul)
+                Text("Sin reuniones").font(.system(size: 22, weight: .light)).foregroundStyle(.white)
+                riel([])
+            }
+        }
+    }
+
+    private func riel(_ eventos: [Agenda.Evento]) -> some View {
+        let cal = Calendar.current
+        let desde = cal.dateInterval(of: .hour, for: Date())!.start
+        let horas = 4.0
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "es_CO")
+        f.dateFormat = "h a"
+        return VStack(spacing: 4) {
+            GeometryReader { g in
+                let w = g.size.width
+                let x = { (d: Date) in w * min(1, max(0, d.timeIntervalSince(desde) / (horas * 3600))) }
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.07)).frame(height: 18)
+                    Capsule().fill(.white.opacity(0.1)).frame(width: x(Date()), height: 18)
+                    ForEach(eventos) { e in
+                        LBloque(color: e.color, texto: e.titulo).frame(width: max(30, x(e.fin) - x(e.inicio))).offset(x: x(e.inicio))
+                    }
+                    Capsule().fill(.white).frame(width: 2, height: 24).offset(x: x(Date())).shadow(color: .white, radius: 3)
                 }
-                .font(.system(size: 8, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
+                .frame(maxHeight: .infinity)
             }
-            HStack(spacing: 6) {
-                Circle().fill(L.naranja).frame(width: 6, height: 6)
-                Text("Después: Llamada con el equipo · 11:27 p. m.").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55))
+            .frame(height: 24)
+            HStack {
+                ForEach(0..<5, id: \.self) { i in
+                    if i > 0 { Spacer() }
+                    Text(f.string(from: desde.addingTimeInterval(Double(i) * 3600)).uppercased())
+                }
             }
+            .font(.system(size: 8, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
         }
     }
 }
@@ -735,32 +888,47 @@ private struct LBloque: View {
             .frame(height: 18)
             .shadow(color: color.opacity(0.7), radius: 6)
             .overlay(Text(texto).font(.system(size: 8.5, weight: .bold)).foregroundStyle(.black.opacity(0.75)).lineLimit(1)
-                .minimumScaleFactor(0.5).padding(.horizontal, 3))
+                .padding(.horizontal, 6))
     }
 }
 
-/// Mac: el arco del dato que más importa (aquí el disco) y, al lado, las demás medidas con su ícono.
+/// Mac: el arco del dato que más importa y, al lado, las demás medidas con su ícono.
 private struct LMac: View {
     var body: some View {
+        let s = maqueta.salud
+        let d = s.diagnostico
+        let memoria = s.memoriaUsada / max(1, s.memoriaTotal)
+        // El arco muestra lo peor; si todo está bien, el disco (lo que más cambia con los días).
+        let principal: (valor: Double, numero: String, unidad: String, pie: String, g: Gravedad) = {
+            if s.gravedadMemoria > s.gravedadDisco && s.gravedadMemoria >= s.gravedadCPU {
+                return (memoria, String(format: "%.0f", s.memoriaUsada / 1e9), "GB", String(format: "de %.0f en uso", s.memoriaTotal / 1.073741824e9), s.gravedadMemoria)
+            }
+            if s.gravedadCPU > s.gravedadDisco { return (s.cpu, "\(Int(s.cpu * 100))", "%", "procesador", s.gravedadCPU) }
+            return (1 - s.discoLibre / max(1, s.discoTotal), String(format: s.discoLibre < 10e9 ? "%.1f" : "%.0f", s.discoLibre / 1e9)
+                .replacingOccurrences(of: ".", with: ","), "GB", String(format: "libres de %.0f", s.discoTotal / 1e9), s.gravedadDisco)
+        }()
+        let colores: [Color] = principal.g == .bien ? [L.verde.mix(with: .white, by: 0.4), L.verde]
+            : principal.g == .atento ? [L.ambar.mix(with: .white, by: 0.3), L.ambar, L.naranja] : [L.ambar, L.naranja, L.rojo]
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 18) {
                 ZStack(alignment: .bottom) {
-                    LArco(valor: 0.97, colores: [L.ambar, L.naranja, L.rojo], grosor: 8).frame(width: 128, height: 68)
+                    LArco(valor: principal.valor, colores: colores, grosor: 8).frame(width: 128, height: 68)
                     VStack(spacing: 0) {
-                        LDato(numero: "7,9", unidad: "GB", tamano: 26, peso: .light)
-                        Text("libres de 245").font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.5))
+                        LDato(numero: principal.numero, unidad: principal.unidad, tamano: 26, peso: .light)
+                        Text(principal.pie).font(.system(size: 9.5)).foregroundStyle(.white.opacity(0.5))
                     }
                 }
                 .frame(width: 128, height: 74)
                 VStack(alignment: .leading, spacing: 7) {
-                    LMedida(simbolo: "cpu", color: L.verde, dato: "46", unidad: "%", titulo: "Procesador")
-                    LMedida(simbolo: "memorychip", color: L.ambar, dato: "13/16", unidad: "GB", titulo: "Memoria")
-                    LMedida(simbolo: "square.stack.3d.up", color: L.verde, dato: "23", unidad: "%", titulo: "Gráficos")
+                    LMedida(simbolo: "cpu", color: color(s.gravedadCPU), dato: "\(Int(s.cpu * 100))", unidad: "%", titulo: "Procesador")
+                    LMedida(simbolo: "memorychip", color: color(s.gravedadMemoria),
+                            dato: String(format: "%.0f/%.0f", s.memoriaUsada / 1e9, s.memoriaTotal / 1.073741824e9), unidad: "GB", titulo: "Memoria")
+                    LMedida(simbolo: "square.stack.3d.up", color: color(s.gravedadGPU), dato: "\(Int(s.gpu * 100))", unidad: "%", titulo: "Gráficos")
                 }
             }
             HStack(spacing: 6) {
-                Circle().fill(L.rojo).frame(width: 6, height: 6).shadow(color: L.rojo, radius: 3)
-                Text("Disco casi lleno · Limpieza puede recuperar 5,7 GB").font(.system(size: 11, weight: .medium))
+                Circle().fill(color(d.gravedad)).frame(width: 6, height: 6).shadow(color: color(d.gravedad), radius: 3)
+                Text(d.titulo + (d.frase.isEmpty ? "" : " · " + d.frase)).font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.white.opacity(0.75)).lineLimit(1)
                 Spacer(minLength: 2)
                 Image(systemName: "arrow.up.forward.app").font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
