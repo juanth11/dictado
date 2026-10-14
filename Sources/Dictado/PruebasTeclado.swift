@@ -210,7 +210,7 @@ func probarVentanas() -> Bool {
         var leido = plan.marco
         leido.size.width = max(leido.width, w.minimo.width)
         leido.size.height = max(leido.height, w.minimo.height)
-        w.memoria = G.recordar(w.memoria, accion: accion, antes: w.marco, leido: leido, paso: plan.paso)
+        w.memoria = G.recordar(w.memoria, accion: plan.registro, antes: w.marco, leido: leido, paso: plan.paso)
         w.marco = leido
         print("    \(nombres[accion]!)  →  \(t(leido))")
         return leido
@@ -280,6 +280,27 @@ func probarVentanas() -> Bool {
     r.revisar("fuera de toda pantalla: la más cercana", G.indice(de: CGRect(x: -900, y: 100, width: 400, height: 300), en: pantallas) == 0)
     w = Simulada(marco: mediana)
     r.revisar("sin memoria, Hyper+↓ no hace nada", aplicar(.restaurar, &w) == nil)
+
+    print("Pantalla vertical (1080 × 1920 a la derecha del portátil, alineada arriba, barra de 25 pt)")
+    let conVertical = G.pantallas([cocoa[0], (CGRect(x: 1512, y: -938, width: 1080, height: 1920),
+                                              CGRect(x: 1512, y: -938, width: 1080, height: 1895))])
+    r.revisar("vertical: visible bajo la barra", conVertical[1].visible == CGRect(x: 1512, y: 25, width: 1080, height: 1895))
+    let enVertical = CGRect(x: 1600, y: 300, width: 800, height: 700)
+    w = Simulada(marco: enVertical)
+    r.revisar("Hyper+↓: mitad de abajo, a todo el ancho", aplicar(.restaurar, &w, en: conVertical) == CGRect(x: 1512, y: 972, width: 1080, height: 948))
+    r.revisar("otra vez: tercio de abajo", aplicar(.restaurar, &w, en: conVertical) == CGRect(x: 1512, y: 1288, width: 1080, height: 632))
+    r.revisar("otra vez: dos tercios de abajo", aplicar(.restaurar, &w, en: conVertical) == CGRect(x: 1512, y: 657, width: 1080, height: 1263))
+    r.revisar("Hyper+↑: mitad de arriba", aplicar(.casiMaximizar, &w, en: conVertical) == CGRect(x: 1512, y: 25, width: 1080, height: 948))
+    r.revisar("otra vez: tercio de arriba", aplicar(.casiMaximizar, &w, en: conVertical) == CGRect(x: 1512, y: 25, width: 1080, height: 632))
+    r.revisar("Hyper+↩: casi maximizada", aplicar(.centrar, &w, en: conVertical) == CGRect(x: 1524, y: 37, width: 1056, height: 1871))
+    r.revisar("Hyper+↩ otra vez: el tamaño de antes de la serie", aplicar(.centrar, &w, en: conVertical) == enVertical)
+    r.revisar("Hyper+→ sin pantalla a la derecha: no hace nada", aplicar(.derecha, &w, en: conVertical) == nil)
+    r.revisar("Hyper+← la lleva a la mitad derecha del portátil", aplicar(.izquierda, &w, en: conVertical) == CGRect(x: 756, y: 37, width: 756, height: 945))
+    r.revisar("allí, Hyper+← la pasa a la mitad izquierda", aplicar(.izquierda, &w, en: conVertical) == CGRect(x: 0, y: 37, width: 756, height: 945))
+    r.revisar("Hyper+N: la mitad izquierda pasa a ser la de arriba en la vertical",
+              aplicar(.otraPantalla, &w, en: conVertical) == CGRect(x: 1512, y: 25, width: 1080, height: 948))
+    r.revisar("y de vuelta: la de arriba pasa a ser la mitad izquierda",
+              aplicar(.otraPantalla, &w, en: conVertical) == CGRect(x: 0, y: 37, width: 756, height: 945))
 
     print("Pantallas de este Mac (solo lectura)")
     for (i, p) in G.pantallas(NSScreen.screens.map { ($0.frame, $0.visibleFrame) }).enumerated() {

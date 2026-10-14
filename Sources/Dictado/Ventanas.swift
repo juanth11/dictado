@@ -6,8 +6,12 @@ import Carbon.HIToolbox
 //   Hyper + ←/→   mitad → tercio → dos tercios del lado, en ciclo al repetir
 //   Hyper + ↑     casi maximizar (margen pequeño); otra vez, vuelve al tamaño previo
 //   Hyper + ↓     restaurar el tamaño previo
-//   Hyper + N     a la siguiente pantalla, con las mismas proporciones
+//   Hyper + N     a la siguiente pantalla, con las mismas proporciones (girada si cambia de orientación)
 //   Hyper + ↩     centrar
+// En una pantalla vertical (un monitor girado) las mitades van arriba y abajo, y una mitad de lado quedaría angosta:
+//   Hyper + ↑/↓   mitad → tercio → dos tercios, arriba o abajo y a todo el ancho
+//   Hyper + ←/→   a la pantalla de ese lado (a la mitad que da hacia la vertical, si es horizontal)
+//   Hyper + ↩     casi maximizar; otra vez, vuelve al tamaño previo
 // La geometría vive en `GeometriaVentanas` (funciones puras, se prueban con --probar-ventanas); aquí solo se lee
 // y se escribe la ventana por Accesibilidad.
 
@@ -84,15 +88,17 @@ final class VentanasTeclado {
         let memoria = indice.map { recuerdos[$0].memoria }
         let pantallas = GeometriaVentanas.pantallas(NSScreen.screens.map { ($0.frame, $0.visibleFrame) })
         guard let plan = GeometriaVentanas.plan(accion, actual: actual, pantallas: pantallas, memoria: memoria) else {
-            // Con memoria y sin plan, la ventana ya está en su tamaño previo: no hace falta avisar.
-            if accion == .restaurar, memoria == nil {
+            if GeometriaVentanas.enVertical(actual, pantallas: pantallas), accion == .izquierda || accion == .derecha {
+                contexto.avisar("No hay otra pantalla a ese lado", "rectangle.portrait.arrowtriangle.2.outward", nil)
+            } else if accion == .restaurar, memoria == nil {
+                // Con memoria y sin plan, la ventana ya está en su tamaño previo: no hace falta avisar.
                 contexto.avisar("No hay un tamaño previo que restaurar", "arrow.uturn.backward", nil)
             }
             return
         }
         AX.mover(ventana, a: plan.marco, app: appAX)
         let leido = AX.marco(ventana) ?? plan.marco  // la app puede ajustar el tamaño (mínimos, celdas de texto)
-        let nueva = GeometriaVentanas.recordar(memoria, accion: accion, antes: actual, leido: leido, paso: plan.paso)
+        let nueva = GeometriaVentanas.recordar(memoria, accion: plan.registro, antes: actual, leido: leido, paso: plan.paso)
         if let indice { recuerdos.remove(at: indice) }
         recuerdos.insert(Recuerdo(ventana: ventana, memoria: nueva), at: 0)
         if recuerdos.count > 40 { recuerdos.removeLast() }  // las ventanas cerradas se olvidan solas
@@ -114,6 +120,7 @@ struct MemoriaVentana: Equatable {
     var previo: CGRect
     /// El marco que quedó tras la última acción, leído de la ventana (no el pedido: la app pudo ajustarlo).
     var ultimo: CGRect
+    /// Lo que quedó registrado (no siempre la tecla: volver al previo con ↑ queda como "restaurar").
     var accion: AccionVentana
     var paso: Int
 }
@@ -160,16 +167,34 @@ enum GeometriaVentanas {
         return CGRect(x: izquierda ? v.minX : v.maxX - ancho, y: v.minY, width: ancho, height: v.height)
     }
 
-    /// Qué tamaño toca: si lo último fue este mismo lado y la ventana no se movió desde entonces, el siguiente
-    /// del ciclo; si ya coincide con un paso del ciclo, el que sigue; si no, la mitad.
-    static func pasoLado(izquierda: Bool, actual: CGRect, en v: CGRect, memoria: MemoriaVentana?) -> Int {
-        if let m = memoria, parecidos(actual, m.ultimo), m.accion == (izquierda ? .izquierda : .derecha) {
+    /// Lo mismo que `lado` pero arriba o abajo y a todo el ancho (pantallas verticales).
+    static func franja(arriba: Bool, paso: Int, en v: CGRect) -> CGRect {
+        let alto = (v.height * fracciones[paso % fracciones.count]).rounded()
+        return CGRect(x: v.minX, y: arriba ? v.minY : v.maxY - alto, width: v.width, height: alto)
+    }
+
+    /// Más alta que ancha: un monitor girado.
+    static func vertical(_ v: CGRect) -> Bool { v.height > v.width }
+
+    /// ¿La ventana está en una pantalla vertical?
+    static func enVertical(_ ventana: CGRect, pantallas: [PantallaAX]) -> Bool {
+        indice(de: ventana, en: pantallas).map { vertical(pantallas[$0].visible) } ?? false
+    }
+
+    /// Qué tamaño del ciclo toca: si lo último fue esta misma acción y la ventana no se movió desde entonces, el
+    /// siguiente; si ya coincide con un paso del ciclo, el que sigue; si no, la mitad.
+    static func pasoCiclo(_ accion: AccionVentana, actual: CGRect, memoria: MemoriaVentana?, marco: (Int) -> CGRect) -> Int {
+        if let m = memoria, parecidos(actual, m.ultimo), m.accion == accion {
             return (m.paso + 1) % fracciones.count
         }
-        for k in fracciones.indices where parecidos(actual, lado(izquierda: izquierda, paso: k, en: v)) {
+        for k in fracciones.indices where parecidos(actual, marco(k)) {
             return (k + 1) % fracciones.count
         }
         return 0
+    }
+
+    static func pasoLado(izquierda: Bool, actual: CGRect, en v: CGRect, memoria: MemoriaVentana?) -> Int {
+        pasoCiclo(izquierda ? .izquierda : .derecha, actual: actual, memoria: memoria) { lado(izquierda: izquierda, paso: $0, en: v) }
     }
 
     static func casiMaximizada(_ v: CGRect) -> CGRect {
@@ -182,13 +207,28 @@ enum GeometriaVentanas {
         return redondear(CGRect(x: v.midX - w / 2, y: v.midY - h / 2, width: w, height: h))
     }
 
-    /// La misma posición y tamaño relativos en otra pantalla (una mitad izquierda sigue siendo mitad izquierda).
+    /// La misma posición y tamaño relativos en otra pantalla (una mitad izquierda sigue siendo mitad izquierda). Entre
+    /// una pantalla horizontal y una vertical se giran los ejes: la mitad izquierda pasa a ser la de arriba y la derecha,
+    /// la de abajo (y al revés), para que nada quede como una tira angosta.
     static func trasladada(_ m: CGRect, de o: CGRect, a d: CGRect) -> CGRect {
-        let r = CGRect(x: d.minX + (m.minX - o.minX) / o.width * d.width,
-                       y: d.minY + (m.minY - o.minY) / o.height * d.height,
-                       width: m.width / o.width * d.width,
-                       height: m.height / o.height * d.height)
+        var rel = CGRect(x: (m.minX - o.minX) / o.width, y: (m.minY - o.minY) / o.height,
+                         width: m.width / o.width, height: m.height / o.height)
+        if vertical(o) != vertical(d) { rel = CGRect(x: rel.minY, y: rel.minX, width: rel.height, height: rel.width) }
+        let r = CGRect(x: d.minX + rel.minX * d.width, y: d.minY + rel.minY * d.height,
+                       width: rel.width * d.width, height: rel.height * d.height)
         return redondear(ajustada(r, a: d))
+    }
+
+    /// La pantalla pegada a ese lado (la más cercana hacia la izquierda o la derecha), si hay.
+    static func vecina(_ i: Int, izquierda: Bool, en pantallas: [PantallaAX]) -> Int? {
+        let m = pantallas[i].marco
+        let candidatas = pantallas.indices.filter { j in
+            j != i && (izquierda ? pantallas[j].marco.midX < m.minX : pantallas[j].marco.midX > m.maxX)
+        }
+        func hueco(_ j: Int) -> CGFloat {
+            izquierda ? m.minX - pantallas[j].marco.maxX : pantallas[j].marco.minX - m.maxX
+        }
+        return candidatas.min { hueco($0) < hueco($1) }
     }
 
     /// Recorta el tamaño a lo que cabe y mete la ventana dentro del área visible.
@@ -216,40 +256,70 @@ enum GeometriaVentanas {
         CGRect(x: r.minX.rounded(), y: r.minY.rounded(), width: r.width.rounded(), height: r.height.rounded())
     }
 
-    /// El marco nuevo para la acción, o nil si no hay nada que hacer (sin previo que restaurar, una sola pantalla).
-    static func plan(_ accion: AccionVentana, actual: CGRect, pantallas: [PantallaAX],
-                     memoria: MemoriaVentana?) -> (marco: CGRect, paso: Int)? {
+    typealias Plan = (marco: CGRect, paso: Int, registro: AccionVentana)
+
+    /// El marco nuevo para la acción y lo que se registra en memoria, o nil si no hay nada que hacer (sin previo que
+    /// restaurar, una sola pantalla, ninguna pantalla hacia ese lado).
+    static func plan(_ accion: AccionVentana, actual: CGRect, pantallas: [PantallaAX], memoria: MemoriaVentana?) -> Plan? {
         guard let i = indice(de: actual, en: pantallas) else { return nil }
         let v = pantallas[i].visible
         // ¿La ventana sigue como la dejó Dictado? Si la moviste a mano, su marco actual pasa a ser el "previo".
         let acomodada = memoria.map { parecidos(actual, $0.ultimo) } ?? false
+        if vertical(v) { return planVertical(accion, actual: actual, i: i, pantallas: pantallas, memoria: acomodada ? memoria : nil) }
         switch accion {
         case .izquierda, .derecha:
             let izquierda = accion == .izquierda
             let paso = pasoLado(izquierda: izquierda, actual: actual, en: v, memoria: acomodada ? memoria : nil)
-            return (lado(izquierda: izquierda, paso: paso, en: v), paso)
+            return (lado(izquierda: izquierda, paso: paso, en: v), paso, accion)
         case .casiMaximizar:
-            if let m = memoria, acomodada, m.accion == .casiMaximizar { return (m.previo, 0) }
-            return (casiMaximizada(v), 0)
+            // Volver al previo queda como "restaurar", para que el siguiente ↑ vuelva a casi maximizar.
+            if let m = memoria, acomodada, m.accion == .casiMaximizar { return (m.previo, 0, .restaurar) }
+            return (casiMaximizada(v), 0, accion)
         case .restaurar:
             guard let m = memoria, !parecidos(actual, m.previo) else { return nil }
-            return (m.previo, 0)
+            return (m.previo, 0, accion)
         case .otraPantalla:
             guard pantallas.count > 1 else { return nil }
-            return (trasladada(actual, de: v, a: pantallas[siguiente(i, en: pantallas)].visible), 0)
+            return (trasladada(actual, de: v, a: pantallas[siguiente(i, en: pantallas)].visible), 0, accion)
         case .centrar:
-            return (centrada(actual, en: v), 0)
+            return (centrada(actual, en: v), 0, accion)
         }
     }
 
-    /// Lo que queda en memoria tras aplicar la acción. El previo solo se renueva si la ventana estaba "libre"
-    /// (nunca la tocó Dictado o la moviste a mano): así ↓ vuelve al tamaño de antes de toda la serie de atajos.
+    /// Las mismas teclas en una pantalla vertical (ver el encabezado). `memoria` solo llega si la ventana sigue como
+    /// la dejó Dictado.
+    private static func planVertical(_ accion: AccionVentana, actual: CGRect, i: Int, pantallas: [PantallaAX],
+                                     memoria: MemoriaVentana?) -> Plan? {
+        let v = pantallas[i].visible
+        switch accion {
+        case .casiMaximizar, .restaurar:   // ↑ arriba, ↓ abajo
+            let arriba = accion == .casiMaximizar
+            let paso = pasoCiclo(accion, actual: actual, memoria: memoria) { franja(arriba: arriba, paso: $0, en: v) }
+            return (franja(arriba: arriba, paso: paso, en: v), paso, accion)
+        case .izquierda, .derecha:
+            let izquierda = accion == .izquierda
+            guard let j = vecina(i, izquierda: izquierda, en: pantallas) else { return nil }
+            let d = pantallas[j].visible
+            if vertical(d) { return (trasladada(actual, de: v, a: d), 0, .otraPantalla) }
+            // Queda en la mitad de la horizontal que da hacia la vertical; se registra como ese lado, para que
+            // allí la tecla contraria la lleve a la otra mitad y la misma siga el ciclo.
+            return (lado(izquierda: !izquierda, paso: 0, en: d), 0, izquierda ? .derecha : .izquierda)
+        case .centrar:   // ↩ casi maximiza; otra vez, vuelve al previo
+            if let m = memoria, m.accion == .centrar { return (m.previo, 0, .restaurar) }
+            return (casiMaximizada(v), 0, .centrar)
+        case .otraPantalla:
+            guard pantallas.count > 1 else { return nil }
+            return (trasladada(actual, de: v, a: pantallas[siguiente(i, en: pantallas)].visible), 0, accion)
+        }
+    }
+
+    /// Lo que queda en memoria tras aplicar la acción (`accion` es lo que el plan pidió registrar). El previo solo se
+    /// renueva si la ventana estaba "libre" (nunca la tocó Dictado o la moviste a mano): así volver al previo lleva al
+    /// tamaño de antes de toda la serie de atajos.
     static func recordar(_ memoria: MemoriaVentana?, accion: AccionVentana, antes: CGRect, leido: CGRect, paso: Int) -> MemoriaVentana {
         let acomodada = memoria.map { parecidos(antes, $0.ultimo) } ?? false
         let previo = acomodada ? memoria!.previo : antes
-        // Volver al previo con ↑ deja la acción como "restaurar" para que el siguiente ↑ vuelva a casi maximizar.
-        let volvio = accion == .casiMaximizar && memoria?.accion == .casiMaximizar && acomodada
-        return MemoriaVentana(previo: previo, ultimo: leido, accion: volvio ? .restaurar : accion, paso: paso)
+        return MemoriaVentana(previo: previo, ultimo: leido, accion: accion, paso: paso)
     }
 }
 

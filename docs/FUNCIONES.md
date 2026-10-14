@@ -115,8 +115,16 @@ Los atajos se registran con los cuatro modificadores, así que también funciona
 | Hyper + ← / → | Mitad del lado. Al repetir: tercio, dos tercios y otra vez mitad |
 | Hyper + ↑ | Casi maximizar, con 12 pt de margen. Al repetir, vuelve al tamaño previo |
 | Hyper + ↓ | Restaurar el tamaño que tenía antes de los atajos |
-| Hyper + N | Mandarla a la siguiente pantalla, con la misma posición y tamaño relativos |
+| Hyper + N | Mandarla a la siguiente pantalla, con la misma posición y tamaño relativos (entre una horizontal y una vertical se giran los ejes: la mitad izquierda pasa a ser la de arriba) |
 | Hyper + ↩ | Centrarla en la pantalla, sin cambiar su tamaño |
+
+**En una pantalla vertical** (un monitor girado, más alto que ancho), una mitad de lado quedaría muy angosta. Ahí las teclas cambian:
+
+| Atajo | Qué hace en la vertical |
+|---|---|
+| Hyper + ↑ / ↓ | Mitad de arriba o de abajo, a todo el ancho. Al repetir: tercio, dos tercios y otra vez mitad |
+| Hyper + ← / → | Mandarla a la pantalla de ese lado, a la mitad que da hacia la vertical. Si no hay pantalla, avisa |
+| Hyper + ↩ | Casi maximizar. Al repetir, vuelve al tamaño previo |
 
 **Cómo usarla.** Con la ventana al frente, pulsa el atajo. Sin la tecla hyper también funciona con ⌃⌥⌘⇧ a mano.
 
@@ -132,7 +140,7 @@ Los atajos se registran con los cuatro modificadores, así que también funciona
 **Archivos.**
 
 - `Sources/Dictado/Ventanas.swift`: el módulo, la geometría en funciones puras (`GeometriaVentanas`) y las ayudas de Accesibilidad (`AX`), que también usa el buscador.
-- Pruebas en `PruebasTeclado.swift`: `Dictado --probar-ventanas` imprime los marcos de cada atajo sobre pantallas de ejemplo (un portátil con notch y un monitor) y comprueba el ciclo, restaurar, el cambio de pantalla y el centrado. No mueve ninguna ventana.
+- Pruebas en `PruebasTeclado.swift`: `Dictado --probar-ventanas` imprime los marcos de cada atajo sobre pantallas de ejemplo (un portátil con notch, un monitor y un monitor vertical) y comprueba el ciclo, restaurar, el cambio de pantalla, el centrado y las teclas en la vertical. No mueve ninguna ventana.
 
 **Permiso.** Accesibilidad. Sin él, el atajo avisa en la isla.
 
