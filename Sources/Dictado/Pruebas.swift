@@ -322,11 +322,14 @@ func hojaCaptura(_ destino: URL) -> Bool {
 
 /// Render de la isla: reposo, abierta y sus actividades. `Dictado --vista-isla salida.png`
 /// `DICTADO_ESCENA=abierta` dibuja una sola escena (la imagen de portada del README); `DICTADO_ESTRES=1` agrega
-/// escenas con textos largos y mucho contenido para revisar que nada se corte.
+/// escenas con textos largos y mucho contenido para revisar que nada se corte. `DICTADO_NOTCH=180x24` dibuja la isla
+/// con otro notch (la de un monitor externo, sin notch, usa el alto de su barra de menús).
 @MainActor
 func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     let fondo = fondoDeMuestra()
     let entorno = ProcessInfo.processInfo.environment
+    let medidas = (entorno["DICTADO_NOTCH"] ?? "").split(separator: "x").compactMap { Double($0) }
+    let notch = medidas.count == 2 ? CGSize(width: medidas[0], height: medidas[1]) : CGSize(width: 186, height: 32)
     let caratula = NSImage(size: NSSize(width: 300, height: 300))
     caratula.lockFocus()
     fondo.draw(in: NSRect(x: 0, y: 0, width: 300, height: 300), from: NSRect(x: 1500, y: 600, width: 900, height: 900),
@@ -346,7 +349,7 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     }
     func escena(_ tipo: Escena) -> some View {
         let estado = EstadoIsla()
-        estado.notch = CGSize(width: 186, height: 32)
+        estado.notch = notch
         estado.inicioActividad = Date().addingTimeInterval(-7)
         let musica = Musica(vivo: false)
         let privacidad = Privacidad(vivo: false)

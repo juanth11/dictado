@@ -5,7 +5,7 @@ Una sola app nativa de macOS, liviana (unos 40 MB de memoria y 0 % de procesador
 - **Dictado por voz** local, que pega donde está el cursor.
 - **Portapapeles** con historial.
 - **Capturas** de pantalla con OCR.
-- **Una isla en el notch** con música, agenda, llamadas, sesiones de Claude Code, agentes remotos, volumen y brillo.
+- **Una isla en el notch (y en cada monitor)** con música, agenda, llamadas, sesiones de Claude Code, agentes remotos, volumen y brillo.
 - **Un monitor y limpiador del Mac** honesto.
 
 Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni tus archivos a ningún servidor.
@@ -23,7 +23,7 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Dictado** | Mantén **⌥Espacio**, habla y suelta: el texto se pega donde está el cursor (en cualquier app). **⌥⇧Espacio** guarda la idea como nota en tu carpeta de ideas. **Esc** cancela. | Handy, superwhisper, MacWhisper |
 | **Portapapeles** | **⌘⌥V**. Historial con búsqueda, filtros, varios elementos a la vez (⌘clic), arrastrar a otras apps, cuadrícula de imágenes, pegado con o sin formato, ⌘1–9. Cada tipo lleva un punto de color discreto y la vista previa muestra sus datos: palabras y caracteres, tamaño, proporción y paleta de una imagen, ruta y parámetros de un enlace, peso de los archivos. Ignora contraseñas. | Raycast, Paste, Maccy |
 | **Captura** | **⌘↩**. Área, ventana, pantalla, texto de una zona (OCR), grabación y temporizador. Destino: portapapeles, Escritorio, Descargas o una carpeta. | CleanShot X (lo básico), TextSniper |
-| **Isla del notch** | Siempre visible. Al pasar el mouse se abre. | Atoll, NotchNook, Boring Notch |
+| **Isla del notch** | Siempre visible, en todas tus pantallas: en el MacBook sobre el notch; en un monitor externo hace de notch arriba al centro, del alto de su barra de menús. Al pasar el mouse se abre la de esa pantalla. | Atoll, NotchNook, Boring Notch |
 | **Salud del Mac** | Pestaña **Mac** de la isla (el ícono ↗ abre el panel) o el menú de Dictado. | CleanMyMac, iStat Menus |
 | **Centro de mando** (opcional) | **Hyper + A** (abre y cierra), menú de Dictado → *Centro de mando…* o `Dictado --abrir-centro` desde un atajo. Un espacio al estilo visionOS (ventanas de vidrio en curva sobre tu fondo de pantalla) con **Hoy** (el brief del día: foco, prioridades, finanzas en resumen y noticias), **Metas** (semana, mes y trimestre), **Orquesta** (tus agentes y tus sesiones de Claude Code) e **Inbox** (tus capturas con un clic). Lee el estado con un comando tuyo; cerrada no corre nada. [Ficha](docs/CENTRO.md) | Paneles de "AI OS" en web o Electron |
 | **Dictado pulido con IA local** (opcional) | Automático al dictar: el modelo de Apple en el Mac quita muletillas y arregla la puntuación, con el tono de la app al frente (chat, correo, prompt, documento). [Ficha](docs/FUNCIONES.md#dictado-pulido-con-ia-local) | Wispr Flow, superwhisper (modos) |
@@ -37,6 +37,8 @@ Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Li
 ### La isla
 
 ![Todas las vistas de la isla](docs/isla.jpg)
+
+Hay una isla en cada pantalla conectada. Lo que muestra (el dictado, los avisos, la música, el volumen) sale en todas a la vez; abrirla con el mouse es de cada una. En un monitor sin notch la isla se dibuja como un notch de 180 puntos de ancho y el alto de su barra de menús; al conectar o desconectar pantallas se acomoda sola.
 
 Toda la app habla un mismo idioma visual, **Halo**: negro de fondo, diales de marcas finas que se encienden, cifras grandes y delgadas, y una luz de color que nace del borde de abajo solo cuando algo pide atención (naranja si Claude te espera, ámbar o rojo si un agente avisa, el color de la carátula con la música). Un tono por momento; lo demás, blanco. En reposo no anima nada (0 % de procesador); las animaciones solo acompañan un cambio. Reglas, piezas y movimiento en [`docs/DISENO.md`](docs/DISENO.md) (y el [video de las animaciones](docs/halo-animaciones.mp4)).
 

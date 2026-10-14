@@ -352,13 +352,17 @@ final class EstadoIsla {
     }
 }
 
-/// Ventana sobre el notch. Crece al instante y se achica cuando termina la animación, para que los clics
-/// fuera de la isla no se bloqueen.
+/// La isla, una por pantalla. En la del notch se pega al notch; en las demás (monitores externos) hace de notch del
+/// alto de la barra de menús, centrada arriba. Lo que muestra (dictado, avisos, música…) sale en todas a la vez; abrirla
+/// con el mouse es de cada pantalla. Cada ventana crece al instante y se achica cuando termina la animación, para que
+/// los clics fuera de la isla no se bloqueen.
 @MainActor
 final class Isla {
     let musica: Musica
     let agenda: Agenda
     let hud: EstadoHUD
+    /// Lo que se muestra ahora, igual en todas las pantallas. Cada pantalla copia esto en su propio estado, que
+    /// además lleva lo suyo: su notch, si está abierta y en qué pestaña.
     let estado = EstadoIsla()
     let privacidad: Privacidad
     let claude: SesionesClaude
@@ -368,15 +372,26 @@ final class Isla {
     let fuentes = Fuentes()
     private let bateria: Bateria
     private var niveles: Niveles?
-    private var panel: NSPanel?
-    private var pantalla: NSScreen?
-    private var colapso: DispatchWorkItem?
+    private var caras: [CGDirectDisplayID: Cara] = [:]
     private var finActividad: DispatchWorkItem?
-    private var achique: DispatchWorkItem?
-    private var vigia: Timer?
     let salud: Salud
 
     static let expandida = CGSize(width: 600, height: 200)
+    /// Ancho del notch que se dibuja en una pantalla que no lo tiene (parecido al de un MacBook).
+    static let notchVirtual: CGFloat = 180
+
+    /// Una pantalla con su isla: la ventana, su estado de vista y sus esperas.
+    @MainActor
+    private final class Cara {
+        var pantalla: NSScreen
+        let estado = EstadoIsla()
+        var panel: NSPanel!
+        var colapso: DispatchWorkItem?
+        var achique: DispatchWorkItem?
+        var vigia: Timer?
+
+        init(pantalla: NSScreen) { self.pantalla = pantalla }
+    }
 
     init(hud: EstadoHUD, niveles: Bool, salud: Salud) {
         self.hud = hud
@@ -415,11 +430,11 @@ final class Isla {
         montar()
     }
 
-    var activa: Bool { panel?.isVisible == true }
+    var activa: Bool { caras.values.contains { $0.panel.isVisible } }
     var interceptaNiveles: Bool { niveles?.conectado == true }
 
     func apagar() {
-        panel?.orderOut(nil)
+        caras.values.forEach { $0.panel.orderOut(nil) }
         usarNiveles(false)
     }
 
@@ -436,37 +451,75 @@ final class Isla {
         }
     }
 
+    /// Una isla en cada pantalla conectada. Se vuelve a llamar cuando conectas, desconectas o reacomodas pantallas.
     func montar() {
-        guard let pantalla = NSScreen.screens.first(where: { $0.safeAreaInsets.top > 0 }) else {
-            panel?.orderOut(nil)  // sin notch (solo monitor externo): no hay isla
-            return
+        var vivas = Set<CGDirectDisplayID>()
+        for pantalla in NSScreen.screens {
+            guard let id = pantalla.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { continue }
+            vivas.insert(id)
+            let cara = caras[id] ?? crearCara(pantalla)
+            caras[id] = cara
+            cara.pantalla = pantalla
+            cara.estado.notch = Self.notch(de: pantalla)
+            sincronizar(cara)
+            poner(cara, tamanoObjetivo(cara))
+            cara.panel.orderFrontRegardless()
         }
-        self.pantalla = pantalla
-        let izquierda = pantalla.auxiliaryTopLeftArea?.width ?? 0
-        let derecha = pantalla.auxiliaryTopRightArea?.width ?? 0
-        estado.notch = CGSize(width: pantalla.frame.width - izquierda - derecha, height: pantalla.safeAreaInsets.top)
-        if panel == nil {
-            let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-            p.isFloatingPanel = true
-            p.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
-            p.backgroundColor = .clear
-            p.isOpaque = false
-            p.hasShadow = false
-            p.hidesOnDeactivate = false
-            p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-            let sensor = Sensor()
-            sensor.alEntrar = { [weak self] in self?.expandir() }
-            sensor.alSalir = { [weak self] in self?.colapsar() }
-            let vista = VistaPrimerClic(rootView: VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud,
-                                                            privacidad: privacidad, claude: claude, agentes: agentes, salud: salud.estado,
-                                                            control: self, fuentes: fuentes))
-            vista.autoresizingMask = [.width, .height]
-            sensor.addSubview(vista)
-            p.contentView = sensor
-            panel = p
+        for (id, cara) in caras where !vivas.contains(id) {   // pantallas que ya no están
+            cara.vigia?.invalidate()
+            cara.panel.orderOut(nil)
+            caras[id] = nil
         }
-        poner(tamanoObjetivo())
-        panel?.orderFrontRegardless()
+    }
+
+    /// El notch de la pantalla; si no tiene (un monitor externo), uno del alto de su barra de menús.
+    static func notch(de pantalla: NSScreen) -> CGSize {
+        if pantalla.safeAreaInsets.top > 0 {
+            let izquierda = pantalla.auxiliaryTopLeftArea?.width ?? 0
+            let derecha = pantalla.auxiliaryTopRightArea?.width ?? 0
+            return CGSize(width: pantalla.frame.width - izquierda - derecha, height: pantalla.safeAreaInsets.top)
+        }
+        let barra = pantalla.frame.maxY - pantalla.visibleFrame.maxY   // 0 si la barra de menús se oculta sola
+        return CGSize(width: notchVirtual, height: barra > 0 ? barra : 24)
+    }
+
+    private func crearCara(_ pantalla: NSScreen) -> Cara {
+        let cara = Cara(pantalla: pantalla)
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        p.isFloatingPanel = true
+        p.level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
+        p.backgroundColor = .clear
+        p.isOpaque = false
+        p.hasShadow = false
+        p.hidesOnDeactivate = false
+        p.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
+        let sensor = Sensor()
+        sensor.alEntrar = { [weak self, weak cara] in if let cara { self?.expandir(cara) } }
+        sensor.alSalir = { [weak self, weak cara] in if let cara { self?.colapsar(cara) } }
+        let vista = VistaPrimerClic(rootView: VistaIsla(estado: cara.estado, musica: musica, agenda: agenda, hud: hud,
+                                                        privacidad: privacidad, claude: claude, agentes: agentes, salud: salud.estado,
+                                                        control: self, fuentes: fuentes))
+        vista.autoresizingMask = [.width, .height]
+        sensor.addSubview(vista)
+        p.contentView = sensor
+        cara.panel = p
+        return cara
+    }
+
+    /// Lo que se muestra es lo mismo en todas las pantallas: se copia a cada una.
+    private func sincronizar(_ cara: Cara) {
+        cara.estado.actividad = estado.actividad
+        cara.estado.idActividad = estado.idActividad
+        cara.estado.inicioActividad = estado.inicioActividad
+    }
+
+    /// Cierra la isla abierta en todas las pantallas (vuelve a la compacta).
+    private func cerrarTodas() {
+        for cara in caras.values {
+            cara.estado.expandida = false
+            cara.estado.pestana = nil
+            cara.estado.agenteAbierto = nil
+        }
     }
 
     // MARK: Actividades
@@ -474,9 +527,7 @@ final class Isla {
     func empezarDictado() {
         guard activa else { return }
         finActividad?.cancel()
-        estado.expandida = false
-        estado.pestana = nil
-        estado.agenteAbierto = nil
+        cerrarTodas()
         estado.actividad = .dictado
         estado.idActividad = UUID()
         estado.inicioActividad = Date()
@@ -512,8 +563,9 @@ final class Isla {
     func mostrarNivel(_ tipo: Niveles.Tipo, valor: Double, silencio: Bool) {
         let nueva = EstadoIsla.Actividad.nivel(tipo: tipo, valor: valor, silencio: silencio,
                                                salida: tipo == .volumen ? Audio.descripcionSalida() : nil)
-        if case .nivel(let actual, _, _, _) = estado.actividad, actual == tipo, !estado.expandida {
+        if case .nivel(let actual, _, _, _) = estado.actividad, actual == tipo, !caras.values.contains(where: { $0.estado.expandida }) {
             estado.actividad = nueva
+            caras.values.forEach(sincronizar)
             programarFin(1.6)
         } else {
             mostrar(nueva, segundos: 1.6)
@@ -529,30 +581,30 @@ final class Isla {
 
     /// Abre el panel completo de Salud del Mac (ícono de la pestaña Mac o "Ver" de un aviso).
     func abrirSalud() {
-        estado.expandida = false
-        estado.pestana = nil
-        estado.agenteAbierto = nil
+        cerrarTodas()
         quitarActividad()
         salud.abrir()
     }
 
     func medirSalud() { salud.medirAhora() }
 
-    /// Desde el aviso de un agente ("Ver"): abre la isla en la pestaña Agentes con su detalle.
+    /// Desde el aviso de un agente ("Ver"): abre la isla de la pantalla donde está el puntero en la pestaña Agentes,
+    /// con su detalle.
     func verAgente(_ nombre: String) {
         finActividad?.cancel()
         quitarActividad()
-        estado.pestana = .agentes
-        estado.agenteAbierto = nombre
-        expandir()
+        let cara = caras.values.first { NSMouseInRect(NSEvent.mouseLocation, $0.pantalla.frame, false) }
+            ?? caras.values.first { $0.pantalla.safeAreaInsets.top > 0 } ?? caras.values.first
+        guard let cara else { return }
+        cara.estado.pestana = .agentes
+        cara.estado.agenteAbierto = nombre
+        expandir(cara)
     }
 
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {
         if sesion?.id != "prueba" { SesionesClaude.abrir(sesion) }
-        estado.expandida = false
-        estado.pestana = nil
-        estado.agenteAbierto = nil
+        cerrarTodas()
         quitarActividad()
     }
 
@@ -571,9 +623,7 @@ final class Isla {
         let ok = enlace.scheme == "dictado-prueba" ? false : NSWorkspace.shared.open(Reunion.abrible(enlace))
         Logger(subsystem: "app.dictado", category: "isla")
             .notice("unirse: \(enlace.host ?? enlace.scheme ?? "", privacy: .public) abrió=\(ok)")
-        estado.expandida = false
-        estado.pestana = nil
-        estado.agenteAbierto = nil
+        cerrarTodas()
         quitarActividad()
     }
 
@@ -610,78 +660,85 @@ final class Isla {
 
     // MARK: Tamaño y mouse
 
-    private func tamanoObjetivo() -> CGSize {
-        estado.tamano(alas: musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad,
-                      punto: privacidad.activo)
+    private func tamanoObjetivo(_ cara: Cara) -> CGSize {
+        cara.estado.tamano(alas: musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad,
+                           punto: privacidad.activo)
+    }
+
+    /// Todas las pantallas: copia lo que se muestra y ajusta cada isla.
+    func ajustar() {
+        for cara in caras.values {
+            sincronizar(cara)
+            ajustar(cara)
+        }
     }
 
     /// Crece al instante (la animación ocurre dentro) y se achica cuando termina.
-    func ajustar() {
-        guard let panel else { return }
-        let objetivo = tamanoObjetivo()
-        let actual = panel.frame.size
-        poner(CGSize(width: max(objetivo.width, actual.width), height: max(objetivo.height, actual.height)))
-        achique?.cancel()
-        let tarea = DispatchWorkItem { [weak self] in
+    private func ajustar(_ cara: Cara) {
+        let objetivo = tamanoObjetivo(cara)
+        let actual = cara.panel.frame.size
+        poner(cara, CGSize(width: max(objetivo.width, actual.width), height: max(objetivo.height, actual.height)))
+        cara.achique?.cancel()
+        let tarea = DispatchWorkItem { [weak self, weak cara] in
             MainActor.assumeIsolated {
-                guard let self else { return }
-                self.poner(self.tamanoObjetivo())
+                guard let self, let cara else { return }
+                self.poner(cara, self.tamanoObjetivo(cara))
             }
         }
-        achique = tarea
+        cara.achique = tarea
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: tarea)
     }
 
-    private func poner(_ tam: CGSize) {
-        guard let pantalla, let panel else { return }
-        panel.setFrame(NSRect(x: pantalla.frame.midX - tam.width / 2, y: pantalla.frame.maxY - tam.height,
-                              width: tam.width, height: tam.height), display: true)
-        panel.contentView?.subviews.first?.frame = NSRect(origin: .zero, size: tam)
+    private func poner(_ cara: Cara, _ tam: CGSize) {
+        let marco = cara.pantalla.frame
+        cara.panel.setFrame(NSRect(x: marco.midX - tam.width / 2, y: marco.maxY - tam.height,
+                                   width: tam.width, height: tam.height), display: true)
+        cara.panel.contentView?.subviews.first?.frame = NSRect(origin: .zero, size: tam)
     }
 
-    private func expandir() {
-        colapso?.cancel()
-        if estado.reunionConBoton && !estado.expandida {  // el mouse va hacia "Unirse": el aviso se queda quieto
+    private func expandir(_ cara: Cara) {
+        cara.colapso?.cancel()
+        if estado.reunionConBoton && !cara.estado.expandida {  // el mouse va hacia "Unirse": el aviso se queda quieto
             finActividad?.cancel()
             return
         }
-        guard !estado.expandida, !estado.dictando else { return }
+        guard !cara.estado.expandida, !estado.dictando else { return }
         agenda.refrescar()
-        estado.expandida = true
-        ajustar()
-        vigilarSalida()
+        cara.estado.expandida = true
+        ajustar(cara)
+        vigilarSalida(cara)
     }
 
     /// Red de seguridad: si macOS no avisa que el mouse salió (pasa cuando la ventana cambia de tamaño bajo el
     /// cursor), la isla abierta se cierra igual.
-    private func vigilarSalida() {
-        vigia?.invalidate()
-        vigia = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] t in
+    private func vigilarSalida(_ cara: Cara) {
+        cara.vigia?.invalidate()
+        cara.vigia = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self, weak cara] t in
             MainActor.assumeIsolated {
-                guard let self, self.estado.expandida, let panel = self.panel else {
+                guard let self, let cara, cara.estado.expandida else {
                     t.invalidate()
                     return
                 }
-                if !NSMouseInRect(NSEvent.mouseLocation, panel.frame, false) { self.colapsar() }
+                if !NSMouseInRect(NSEvent.mouseLocation, cara.panel.frame, false) { self.colapsar(cara) }
             }
         }
     }
 
-    private func colapsar() {
-        if estado.reunionConBoton && !estado.expandida {
+    private func colapsar(_ cara: Cara) {
+        if estado.reunionConBoton && !cara.estado.expandida {
             programarFin(4)
             return
         }
-        let tarea = DispatchWorkItem { [weak self] in
+        let tarea = DispatchWorkItem { [weak self, weak cara] in
             MainActor.assumeIsolated {
-                guard let self, self.estado.expandida else { return }
-                self.estado.expandida = false
-                self.estado.pestana = nil
-                self.estado.agenteAbierto = nil
-                self.ajustar()
+                guard let self, let cara, cara.estado.expandida else { return }
+                cara.estado.expandida = false
+                cara.estado.pestana = nil
+                cara.estado.agenteAbierto = nil
+                self.ajustar(cara)
             }
         }
-        colapso = tarea
+        cara.colapso = tarea
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: tarea)
     }
 
