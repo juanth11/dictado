@@ -635,11 +635,16 @@ private struct EscenaMetasCentro: View {
         return f.date(from: iso)
     }
 
+    @Environment(\.medidasEspacio) private var m
+
     var body: some View {
+        // En vertical la de arriba es la semana (la que se decide); el mes y el trimestre quedan debajo, en orden.
+        let lado: (h: EstadoCentro.Horizonte, d: DibujoCentro) = m.vertical ? (metas.mes, .mes) : (metas.semana, .semana)
+        let frente: (h: EstadoCentro.Horizonte, d: DibujoCentro) = m.vertical ? (metas.semana, .semana) : (metas.mes, .mes)
         EspacioCentro {
-            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.semana, dibujo: .semana, hito: hito) }
+            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: lado.h, dibujo: lado.d, hito: hito) }
         } centro: {
-            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.mes, dibujo: .mes, hito: hito) }
+            VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: frente.h, dibujo: frente.d, hito: hito) }
         } derecha: {
             VentanaEspacio(relleno: 0) { TarjetaHorizonteCentro(h: metas.trimestre, dibujo: .trimestre, hito: hito) }
         } debajo: {

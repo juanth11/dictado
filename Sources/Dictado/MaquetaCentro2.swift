@@ -45,7 +45,8 @@ private func sesionesAhora() -> [SesionesClaude.Sesion] {
 
 @MainActor
 private func renderCentro(_ estado: EstadoCentro?, destino: URL, escena: String?, ctx: ContextoCentro) -> Bool {
-    let lienzo = CGSize(width: 1600, height: 1000)
+    let medidas = (ProcessInfo.processInfo.environment["DICTADO_LIENZO"] ?? "").split(separator: "x").compactMap { Double($0) }
+    let lienzo = medidas.count == 2 ? CGSize(width: medidas[0], height: medidas[1]) : CGSize(width: 1600, height: 1000)
     let seccion = SeccionCentro(rawValue: escena ?? "hoy") ?? .hoy
     let vista = ZStack {
         FondoEspacio(imagen: fondoDeMuestra())

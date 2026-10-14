@@ -7,6 +7,8 @@ import SwiftUI
 // de frente. Alrededor van los ornamentos: las pestañas a la izquierda, el estado arriba y, bajo la ventana del
 // centro, lo que acompaña a cada sección. La ventana lateral que apuntas se pone de frente para leerla y tocarla; con
 // "Reducir movimiento" todas quedan de frente desde el principio.
+// En una pantalla vertical (un monitor girado) el espacio se apila: la ventana del centro arriba, las otras dos debajo
+// lado a lado (giradas hacia ti), luego el ornamento y las pestañas abajo, en fila.
 
 // (Claves a mano: sin Xcode no está el plugin de la macro @Entry.)
 private struct ClaveVidrioSimulado: EnvironmentKey { static let defaultValue = false }
@@ -42,22 +44,47 @@ struct MedidasEspacio {
     static let ornamento: CGFloat = 74
     static let aire: CGFloat = 18
     static let minimo = CGSize(width: 1370, height: 780)
+    static let minimoVertical = CGSize(width: 900, height: 1300)
+    /// Alto de las pestañas cuando van en fila (pantalla vertical).
+    static let filaPestanas: CGFloat = 58
 
     var escala: CGFloat = 1
     var lienzo = CGSize(width: 1600, height: 1000)
+    /// Ancho de las ventanas de los lados (en vertical, de cada una de las dos de abajo).
     var lateral: CGFloat = 400
     var central: CGFloat = 600
+    /// Alto de las ventanas de los lados (en horizontal, también el de la del centro).
     var alto: CGFloat = 680
+    var vertical = false
+    /// En vertical: alto de la ventana del centro (arriba).
+    var altoCentral: CGFloat = 680
+    /// Ancho del ornamento de debajo.
+    var debajo: CGFloat = 1000
 
     init() {}
 
     init(_ disponible: CGSize) {
-        escala = max(0.5, min(1, disponible.width / Self.minimo.width, disponible.height / Self.minimo.height))
-        lienzo = CGSize(width: max(Self.minimo.width, disponible.width / escala), height: max(Self.minimo.height, disponible.height / escala))
+        vertical = disponible.height > disponible.width
+        let minimo = vertical ? Self.minimoVertical : Self.minimo
+        escala = max(0.5, min(1, disponible.width / minimo.width, disponible.height / minimo.height))
+        lienzo = CGSize(width: max(minimo.width, disponible.width / escala), height: max(minimo.height, disponible.height / escala))
+        if vertical {
+            let util = lienzo.width - 2 * Self.margen
+            lateral = ((util - Self.separacion) / 2).rounded(.down)
+            central = min(util, 780)   // como una columna de lectura: más ancha, las líneas serían muy largas
+            debajo = util
+            let libre = lienzo.height - 2 * Self.margen - Self.barra - Self.ornamento - Self.filaPestanas - 4 * Self.aire
+            // Topes: lo que sobra es fondo (aire), no vidrio vacío.
+            altoCentral = min(660, max(520, (libre * 0.48).rounded()))
+            alto = min(700, max(520, libre - altoCentral))
+            return
+        }
         let util = lienzo.width - 2 * Self.margen - Self.pestanas - 3 * Self.separacion
         central = min(760, max(500, util * 0.42))
         lateral = min(440, max(340, (util - central) / 2))
         alto = min(650, max(560, lienzo.height - 2 * Self.margen - Self.barra - Self.ornamento - 2 * Self.aire))
+        altoCentral = alto
+        debajo = central + lateral
     }
 }
 
@@ -97,8 +124,11 @@ struct FondoEspacio: View {
             if sinTransparencia {
                 Color(white: 0.09)
             } else if let imagen {
-                Image(nsImage: imagen).resizable().scaledToFill()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity).clipped()
+                // En un overlay de Color.clear: la imagen llena la pantalla sin empujar el tamaño del espacio (un fondo
+                // horizontal en una pantalla vertical lo ensanchaba al ancho de la imagen).
+                Color.clear
+                    .overlay { Image(nsImage: imagen).resizable().scaledToFill() }
+                    .clipped()
                 Color.black.opacity(0.14)
             } else {
                 DesenfoqueEscritorio()
@@ -148,6 +178,10 @@ struct EspacioCentro<I: View, C: View, D: View, B: View>: View {
     @Environment(\.pestanasEspacio) private var pestanas
 
     var body: some View {
+        if m.vertical { apilado } else { enCurva }
+    }
+
+    private var enCurva: some View {
         VStack(spacing: MedidasEspacio.aire) {
             HStack(spacing: MedidasEspacio.separacion) {
                 // Las pestañas se abren hacia la derecha (encima de la ventana izquierda) sin mover nada.
@@ -162,8 +196,26 @@ struct EspacioCentro<I: View, C: View, D: View, B: View>: View {
                 Color.clear
                 debajo()
             }
-            .frame(width: m.central + m.lateral, height: MedidasEspacio.ornamento)
+            .frame(width: m.debajo, height: MedidasEspacio.ornamento)
             .offset(x: (MedidasEspacio.pestanas - MedidasEspacio.separacion) / 2)   // centrado bajo la ventana del centro
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Pantalla vertical: la del centro arriba, las otras dos debajo lado a lado, el ornamento y las pestañas en fila.
+    private var apilado: some View {
+        VStack(spacing: MedidasEspacio.aire) {
+            centro().frame(width: m.central, height: m.altoCentral).zIndex(1)
+            HStack(spacing: MedidasEspacio.separacion) {
+                izquierda().frame(width: m.lateral, height: m.alto).modifier(Curva(lado: .izquierda, grados: 9))
+                derecha().frame(width: m.lateral, height: m.alto).modifier(Curva(lado: .derecha, grados: 9))
+            }
+            ZStack {
+                Color.clear
+                debajo()
+            }
+            .frame(width: m.debajo, height: MedidasEspacio.ornamento)
+            pestanas.frame(height: MedidasEspacio.filaPestanas)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -179,11 +231,12 @@ extension EspacioCentro where B == EmptyView {
 /// sin perspectiva). Con "Reducir movimiento", de frente siempre.
 private struct Curva: ViewModifier {
     let lado: LadoEspacio
+    var grados = 13.0
     @Environment(\.accessibilityReduceMotion) private var sinMovimiento
     @State private var deFrente = false
 
     func body(content: Content) -> some View {
-        let giro = sinMovimiento || deFrente ? 0.0 : (lado == .izquierda ? 13.0 : -13.0)
+        let giro = sinMovimiento || deFrente ? 0.0 : (lado == .izquierda ? grados : -grados)
         content
             .rotation3DEffect(.degrees(giro), axis: (x: 0, y: 1, z: 0), anchor: lado == .izquierda ? .trailing : .leading,
                               perspective: 0.45)
@@ -346,9 +399,36 @@ private struct PestanasEspacio: View {
     let ctx: ContextoCentro
     @Binding var seccion: SeccionCentro
     @Environment(\.accessibilityReduceMotion) private var sinMovimiento
+    @Environment(\.medidasEspacio) private var m
     @State private var abiertas = false
 
     var body: some View {
+        if m.vertical { enFila } else { enColumna }
+    }
+
+    /// Pantalla vertical: una fila abajo; las secciones con su nombre y los módulos solo con su ícono.
+    private var enFila: some View {
+        HStack(spacing: 4) {
+            ForEach(SeccionCentro.allCases, id: \.self) { s in
+                BotonPestana(icono: s.simbolo, titulo: s.titulo, activa: s == seccion, abiertas: true, ancho: nil,
+                             cuenta: cuenta(s), aviso: s == .orquesta && cuenta(s) > 0) { seccion = s }
+            }
+            let modulos = estado?.modulos ?? []
+            if !modulos.isEmpty {
+                Rectangle().fill(Halo.linea).frame(width: 0.75, height: 28).padding(.horizontal, 6)
+                ForEach(modulos, id: \.nombre) { m in
+                    BotonPestana(icono: m.icono, titulo: m.nombre, externo: m.abrir != nil, abiertas: false,
+                                 color: colorVertical(m.nombre)) { if let a = m.abrir { ctx.abrir(a) } }
+                        .disabled(m.abrir == nil)
+                }
+            }
+        }
+        .padding(7)
+        .fixedSize()
+        .ornamento(radio: 29)
+    }
+
+    private var enColumna: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(SeccionCentro.allCases, id: \.self) { s in
                 BotonPestana(icono: s.simbolo, titulo: s.titulo, activa: s == seccion, abiertas: abiertas,
@@ -389,6 +469,8 @@ private struct BotonPestana: View {
     var externo = false
     var activa = false
     let abiertas: Bool
+    /// Ancho abierto: fijo en la columna (todas iguales); nil en la fila (cada una lo que ocupa).
+    var ancho: CGFloat? = 214
     var cuenta = 0
     /// Pide tu sí: punto del tono de Claude. Una cuenta sin urgencia (el inbox) lleva el número al abrirse.
     var aviso = false
@@ -427,7 +509,7 @@ private struct BotonPestana: View {
                 }
             }
             .padding(.trailing, abiertas ? 14 : 0)
-            .frame(width: abiertas ? 214 : 44, height: 44, alignment: .leading)
+            .frame(width: abiertas ? ancho : 44, height: 44, alignment: .leading)
             .foregroundStyle(activa || encima ? Halo.texto : TextoCentro.secundario)
             .background {
                 if activa {

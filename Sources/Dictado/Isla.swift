@@ -377,8 +377,10 @@ final class Isla {
     let salud: Salud
 
     static let expandida = CGSize(width: 600, height: 200)
-    /// Ancho del notch que se dibuja en una pantalla que no lo tiene (parecido al de un MacBook).
+    /// Ancho del notch que se dibuja en una pantalla que no lo tiene: parecido al de un MacBook en una horizontal; en una
+    /// vertical, angosto, porque su barra de menús es corta y la isla taparía los menús.
     static let notchVirtual: CGFloat = 180
+    static let notchVirtualVertical: CGFloat = 64
 
     /// Una pantalla con su isla: la ventana, su estado de vista y sus esperas.
     @MainActor
@@ -480,7 +482,8 @@ final class Isla {
             return CGSize(width: pantalla.frame.width - izquierda - derecha, height: pantalla.safeAreaInsets.top)
         }
         let barra = pantalla.frame.maxY - pantalla.visibleFrame.maxY   // 0 si la barra de menús se oculta sola
-        return CGSize(width: notchVirtual, height: barra > 0 ? barra : 24)
+        let vertical = pantalla.frame.height > pantalla.frame.width
+        return CGSize(width: vertical ? notchVirtualVertical : notchVirtual, height: barra > 0 ? barra : 24)
     }
 
     private func crearCara(_ pantalla: NSScreen) -> Cara {

@@ -2,6 +2,8 @@
 
 Es un espacio de Dictado para ver tu día y a tus agentes, al estilo visionOS. Al abrirlo, tu fondo de pantalla ocupa la pantalla y encima flotan tres ventanas de vidrio en curva que miran hacia ti. La del centro está de frente; la lateral que apuntas con el puntero se pone de frente para leerla y tocarla. Alrededor van los ornamentos: las pestañas a la izquierda (con tus módulos), el estado arriba y, bajo la ventana del centro, lo que acompaña a cada sección. Se cierra con esc, ⌘W o la ×, o al irte a otra app, como Launchpad.
 
+Se abre en la pantalla donde está el puntero. En una pantalla vertical (un monitor girado) el espacio se apila: la ventana del centro arriba, las otras dos debajo lado a lado, luego el ornamento y las pestañas en fila abajo. En Metas, la semana va arriba.
+
 Tiene cuatro secciones:
 
 - **Hoy:** a la izquierda tus agentes (sesiones de Claude Code, tu servidor y lo último que llegó al inbox); al frente el brief del día, con el foco, tres prioridades atadas a tus metas y cosas buenas de saber; a la derecha finanzas en resumen y noticias que te importan; debajo, tus metas de la semana, el mes y el trimestre.

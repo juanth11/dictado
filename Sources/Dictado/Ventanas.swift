@@ -12,11 +12,16 @@ import Carbon.HIToolbox
 //   Hyper + ↑/↓   mitad → tercio → dos tercios, arriba o abajo y a todo el ancho
 //   Hyper + ←/→   a la pantalla de ese lado (a la mitad que da hacia la vertical, si es horizontal)
 //   Hyper + ↩     casi maximizar; otra vez, vuelve al tamaño previo
+// Y en cualquier pantalla:
+//   Hyper + D     la ventana al frente y la que usaste antes, juntas en la pantalla de la del frente: arriba y abajo
+//                 en una vertical, lado a lado en una horizontal. Al repetir, el reparto pasa de ⅔ + ⅓ a ½ + ½ y a ⅓ + ⅔
 // La geometría vive en `GeometriaVentanas` (funciones puras, se prueban con --probar-ventanas); aquí solo se lee
 // y se escribe la ventana por Accesibilidad.
 
 enum AccionVentana: Equatable {
     case izquierda, derecha, casiMaximizar, restaurar, otraPantalla, centrar
+    /// Hyper + D (dos ventanas a la vez): no pasa por `plan`; se registra para que ↓ / ↩ puedan volver al previo.
+    case disponer
 }
 
 /// Interruptor del módulo: registra los atajos según `Funcion.ventanas` y mueve la ventana enfocada.
@@ -28,13 +33,23 @@ final class VentanasTeclado {
         var memoria: MemoriaVentana
     }
 
+    /// La última disposición (Hyper + D): si al repetir siguen igual, se pasa al siguiente reparto.
+    private struct Disposicion {
+        let frente: AXUIElement
+        let otra: AXUIElement
+        var marco: CGRect
+        var paso: Int
+    }
+
     private let contexto: ContextoModulos
     private var recuerdos: [Recuerdo] = []
+    private var disposicion: Disposicion?
     private var registrados = false
     /// Ids de Carbon reservados para este módulo: 30-39.
     private static let atajos: [(id: UInt32, tecla: Int, accion: AccionVentana)] = [
         (30, kVK_LeftArrow, .izquierda), (31, kVK_RightArrow, .derecha), (32, kVK_UpArrow, .casiMaximizar),
         (33, kVK_DownArrow, .restaurar), (34, kVK_ANSI_N, .otraPantalla), (35, kVK_Return, .centrar),
+        (36, kVK_ANSI_D, .disponer),
     ]
 
     init(_ contexto: ContextoModulos) {
@@ -53,7 +68,7 @@ final class VentanasTeclado {
             let hyper = cmdKey | optionKey | controlKey | shiftKey
             let ocupados = Self.atajos.filter { a in
                 !Atajos.shared.registrar(id: a.id, tecla: a.tecla, modificadores: hyper,
-                                         alPresionar: { [weak self] in self?.ejecutar(a.accion) })
+                                         alPresionar: { [weak self] in a.accion == .disponer ? self?.disponer() : self?.ejecutar(a.accion) })
             }
             if !ocupados.isEmpty {
                 contexto.avisar("Algunos atajos de ventanas los usa otra app", "keyboard.badge.exclamationmark", nil)
@@ -63,6 +78,7 @@ final class VentanasTeclado {
             registrados = false
             Self.atajos.forEach { Atajos.shared.quitar(id: $0.id) }
             recuerdos = []
+            disposicion = nil
         }
     }
 
@@ -84,8 +100,7 @@ final class VentanasTeclado {
             return
         }
         guard let actual = AX.marco(ventana) else { return }
-        let indice = recuerdos.firstIndex { CFEqual($0.ventana, ventana) }
-        let memoria = indice.map { recuerdos[$0].memoria }
+        let memoria = recuerdos.first { CFEqual($0.ventana, ventana) }?.memoria
         let pantallas = GeometriaVentanas.pantallas(NSScreen.screens.map { ($0.frame, $0.visibleFrame) })
         guard let plan = GeometriaVentanas.plan(accion, actual: actual, pantallas: pantallas, memoria: memoria) else {
             if GeometriaVentanas.enVertical(actual, pantallas: pantallas), accion == .izquierda || accion == .derecha {
@@ -96,12 +111,83 @@ final class VentanasTeclado {
             }
             return
         }
-        AX.mover(ventana, a: plan.marco, app: appAX)
-        let leido = AX.marco(ventana) ?? plan.marco  // la app puede ajustar el tamaño (mínimos, celdas de texto)
-        let nueva = GeometriaVentanas.recordar(memoria, accion: plan.registro, antes: actual, leido: leido, paso: plan.paso)
+        acomodar(ventana, de: appAX, a: plan.marco, antes: actual, registro: plan.registro, paso: plan.paso)
+    }
+
+    /// Mueve la ventana y recuerda lo que le hizo (el previo para volver, y el paso del ciclo).
+    @discardableResult
+    private func acomodar(_ ventana: AXUIElement, de app: AXUIElement, a marco: CGRect, antes: CGRect,
+                          registro: AccionVentana, paso: Int) -> CGRect {
+        let indice = recuerdos.firstIndex { CFEqual($0.ventana, ventana) }
+        let memoria = indice.map { recuerdos[$0].memoria }
+        AX.mover(ventana, a: marco, app: app)
+        let leido = AX.marco(ventana) ?? marco  // la app puede ajustar el tamaño (mínimos, celdas de texto)
+        let nueva = GeometriaVentanas.recordar(memoria, accion: registro, antes: antes, leido: leido, paso: paso)
         if let indice { recuerdos.remove(at: indice) }
         recuerdos.insert(Recuerdo(ventana: ventana, memoria: nueva), at: 0)
         if recuerdos.count > 40 { recuerdos.removeLast() }  // las ventanas cerradas se olvidan solas
+        return leido
+    }
+
+    /// Hyper + D: la ventana al frente y la anterior, juntas en la pantalla de la del frente.
+    func disponer() {
+        guard AXIsProcessTrusted() else {
+            contexto.avisar("Activa Accesibilidad para mover ventanas", "lock", nil)
+            return
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication, app.processIdentifier != getpid() else { return }
+        let appAX = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appAX, 0.3)
+        guard let frente = AX.elemento(appAX, kAXFocusedWindowAttribute) ?? AX.elemento(appAX, kAXMainWindowAttribute),
+              let marcoFrente = AX.marco(frente) else {
+            contexto.avisar("No hay una ventana que acomodar", "macwindow", nil)
+            return
+        }
+        // ¿Repites sobre la misma pareja tal como quedó? Siguiente reparto. Si no, la ventana que usaste antes.
+        var paso = 0
+        var otra: (ventana: AXUIElement, app: AXUIElement, marco: CGRect)?
+        if let d = disposicion, CFEqual(d.frente, frente), GeometriaVentanas.parecidos(marcoFrente, d.marco),
+           let marcoOtra = AX.marco(d.otra) {
+            var pid: pid_t = 0
+            AXUIElementGetPid(d.otra, &pid)
+            otra = (d.otra, AXUIElementCreateApplication(pid), marcoOtra)
+            paso = d.paso + 1
+        } else {
+            otra = Self.anterior(a: marcoFrente, pidFrente: app.processIdentifier)
+        }
+        guard let otra else {
+            contexto.avisar("No hay otra ventana para acomodar al lado", "rectangle.split.1x2", nil)
+            return
+        }
+        let pantallas = GeometriaVentanas.pantallas(NSScreen.screens.map { ($0.frame, $0.visibleFrame) })
+        guard let i = GeometriaVentanas.indice(de: marcoFrente, en: pantallas) else { return }
+        let reparto = GeometriaVentanas.disposicion(paso: paso, en: pantallas[i].visible)
+        let quedo = acomodar(frente, de: appAX, a: reparto.frente, antes: marcoFrente, registro: .disponer, paso: paso)
+        AXUIElementSetMessagingTimeout(otra.ventana, 0.3)
+        acomodar(otra.ventana, de: otra.app, a: reparto.otra, antes: otra.marco, registro: .disponer, paso: paso)
+        disposicion = Disposicion(frente: frente, otra: otra.ventana, marco: quedo, paso: paso)
+    }
+
+    /// La ventana que usaste antes de la del frente: la siguiente en el orden de pantalla (de adelante hacia atrás),
+    /// de una app normal y de tamaño de ventana (no menús, avisos ni la isla).
+    private static func anterior(a marcoFrente: CGRect, pidFrente: pid_t) -> (ventana: AXUIElement, app: AXUIElement, marco: CGRect)? {
+        let lista = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        for w in lista {
+            guard (w[kCGWindowLayer as String] as? Int) == 0, (w[kCGWindowAlpha as String] as? Double ?? 1) > 0,
+                  let pid = w[kCGWindowOwnerPID as String] as? pid_t, pid != getpid(),
+                  let b = w[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+            let marco = CGRect(x: b["X"] ?? 0, y: b["Y"] ?? 0, width: b["Width"] ?? 0, height: b["Height"] ?? 0)
+            guard marco.width >= 200, marco.height >= 120 else { continue }
+            if pid == pidFrente && GeometriaVentanas.parecidos(marco, marcoFrente) { continue }   // la del frente
+            guard NSRunningApplication(processIdentifier: pid)?.activationPolicy == .regular else { continue }
+            let appAX = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(appAX, 0.3)
+            let ventanas = AX.valor(appAX, kAXWindowsAttribute) as? [AXUIElement] ?? []
+            if let v = ventanas.first(where: { AX.marco($0).map { GeometriaVentanas.parecidos($0, marco) } ?? false }) {
+                return (v, appAX, marco)
+            }
+        }
+        return nil
     }
 }
 
@@ -171,6 +257,23 @@ enum GeometriaVentanas {
     static func franja(arriba: Bool, paso: Int, en v: CGRect) -> CGRect {
         let alto = (v.height * fracciones[paso % fracciones.count]).rounded()
         return CGRect(x: v.minX, y: arriba ? v.minY : v.maxY - alto, width: v.width, height: alto)
+    }
+
+    /// Hyper + D: cuánto le toca a la ventana del frente, en ciclo.
+    static let repartos: [CGFloat] = [2.0 / 3, 1.0 / 2, 1.0 / 3]
+
+    /// La del frente arriba y la otra abajo en una pantalla vertical; lado a lado (la del frente a la izquierda) en una
+    /// horizontal.
+    static func disposicion(paso: Int, en v: CGRect) -> (frente: CGRect, otra: CGRect) {
+        let f = repartos[paso % repartos.count]
+        if vertical(v) {
+            let alto = (v.height * f).rounded()
+            return (CGRect(x: v.minX, y: v.minY, width: v.width, height: alto),
+                    CGRect(x: v.minX, y: v.minY + alto, width: v.width, height: v.height - alto))
+        }
+        let ancho = (v.width * f).rounded()
+        return (CGRect(x: v.minX, y: v.minY, width: ancho, height: v.height),
+                CGRect(x: v.minX + ancho, y: v.minY, width: v.width - ancho, height: v.height))
     }
 
     /// Más alta que ancha: un monitor girado.
@@ -283,6 +386,8 @@ enum GeometriaVentanas {
             return (trasladada(actual, de: v, a: pantallas[siguiente(i, en: pantallas)].visible), 0, accion)
         case .centrar:
             return (centrada(actual, en: v), 0, accion)
+        case .disponer:
+            return nil
         }
     }
 
@@ -310,6 +415,8 @@ enum GeometriaVentanas {
         case .otraPantalla:
             guard pantallas.count > 1 else { return nil }
             return (trasladada(actual, de: v, a: pantallas[siguiente(i, en: pantallas)].visible), 0, accion)
+        case .disponer:
+            return nil
         }
     }
 

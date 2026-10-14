@@ -29,7 +29,7 @@ Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni t
 | **Dictado pulido con IA local** (opcional) | Automático al dictar: el modelo de Apple en el Mac quita muletillas y arregla la puntuación, con el tono de la app al frente (chat, correo, prompt, documento). [Ficha](docs/FUNCIONES.md#dictado-pulido-con-ia-local) | Wispr Flow, superwhisper (modos) |
 | **Acciones sobre texto seleccionado** (opcional) | **Hyper + T** sobre un texto: traducir, corregir, resumir, más formal, mandar a Claude o guardar como idea; luego Reemplazar o Copiar. [Ficha](docs/FUNCIONES.md#acciones-sobre-texto-seleccionado) | PopClip, Raycast AI |
 | **Tecla hyper** (opcional) | Mantén **Bloq Mayús** junto con otra tecla = ⌃⌥⌘⇧, para atajos que no chocan con nada; sola sigue activando las **mayúsculas**. Hyper + V portapapeles, + C captura, + M Salud del Mac, + U unirse a la reunión, + A centro de mando. | Hyperkey, Karabiner (lo básico) |
-| **Ventanas por teclado** (opcional) | **Hyper + ←/→**: mitad, tercio y dos tercios. **↑** casi maximizar, **↓** restaurar, **N** otra pantalla, **↩** centrar. En un monitor vertical: **↑/↓** mitad de arriba o de abajo (y tercios), **←/→** a la pantalla de al lado, **↩** casi maximizar. | Rectangle, Magnet |
+| **Ventanas por teclado** (opcional) | **Hyper + ←/→**: mitad, tercio y dos tercios. **↑** casi maximizar, **↓** restaurar, **N** otra pantalla, **↩** centrar. En un monitor vertical: **↑/↓** mitad de arriba o de abajo (y tercios), **←/→** a la pantalla de al lado, **↩** casi maximizar. **Hyper + D** junta la ventana al frente y la anterior (⅔ + ⅓, al repetir ½ + ½ y ⅓ + ⅔). | Rectangle, Magnet |
 | **Buscador de ventanas** (opcional) | **Hyper + Espacio**: escribe parte del título o de la app y salta a la ventana, aunque esté minimizada. | Contexts, AltTab |
 
 Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Limpieza) se prenden o apagan en el menú **Funciones** de Dictado. Qué hace cada una, qué archivos toca y cómo quitarla del todo está en [`docs/FUNCIONES.md`](docs/FUNCIONES.md).
@@ -38,7 +38,7 @@ Las funciones marcadas como opcionales (y la de quitar descargas de iCloud en Li
 
 ![Todas las vistas de la isla](docs/isla.jpg)
 
-Hay una isla en cada pantalla conectada. Lo que muestra (el dictado, los avisos, la música, el volumen) sale en todas a la vez; abrirla con el mouse es de cada una. En un monitor sin notch la isla se dibuja como un notch de 180 puntos de ancho y el alto de su barra de menús; al conectar o desconectar pantallas se acomoda sola.
+Hay una isla en cada pantalla conectada. Lo que muestra (el dictado, los avisos, la música, el volumen) sale en todas a la vez; abrirla con el mouse es de cada una. En un monitor sin notch la isla se dibuja como un notch del alto de su barra de menús: de 180 puntos en uno horizontal y de 64 en uno vertical (su barra de menús es corta y taparía los menús). Al conectar o desconectar pantallas se acomoda sola.
 
 Toda la app habla un mismo idioma visual, **Halo**: negro de fondo, diales de marcas finas que se encienden, cifras grandes y delgadas, y una luz de color que nace del borde de abajo solo cuando algo pide atención (naranja si Claude te espera, ámbar o rojo si un agente avisa, el color de la carátula con la música). Un tono por momento; lo demás, blanco. En reposo no anima nada (0 % de procesador); las animaciones solo acompañan un cambio. Reglas, piezas y movimiento en [`docs/DISENO.md`](docs/DISENO.md) (y el [video de las animaciones](docs/halo-animaciones.mp4)).
 

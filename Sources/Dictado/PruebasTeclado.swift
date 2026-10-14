@@ -200,7 +200,7 @@ func probarVentanas() -> Bool {
         var minimo = CGSize.zero
     }
     let nombres: [AccionVentana: String] = [.izquierda: "Hyper+←", .derecha: "Hyper+→", .casiMaximizar: "Hyper+↑",
-                                            .restaurar: "Hyper+↓", .otraPantalla: "Hyper+N", .centrar: "Hyper+↩"]
+                                            .restaurar: "Hyper+↓", .otraPantalla: "Hyper+N", .centrar: "Hyper+↩", .disponer: "Hyper+D"]
     @discardableResult
     func aplicar(_ accion: AccionVentana, _ w: inout Simulada, en ps: [PantallaAX] = pantallas) -> CGRect? {
         guard let plan = G.plan(accion, actual: w.marco, pantallas: ps, memoria: w.memoria) else {
@@ -301,6 +301,19 @@ func probarVentanas() -> Bool {
               aplicar(.otraPantalla, &w, en: conVertical) == CGRect(x: 1512, y: 25, width: 1080, height: 948))
     r.revisar("y de vuelta: la de arriba pasa a ser la mitad izquierda",
               aplicar(.otraPantalla, &w, en: conVertical) == CGRect(x: 0, y: 37, width: 756, height: 945))
+
+    print("Hyper+D: la del frente y la anterior juntas")
+    let enVerticalD = G.disposicion(paso: 0, en: conVertical[1].visible)
+    print("    vertical  frente \(t(enVerticalD.frente))   otra \(t(enVerticalD.otra))")
+    r.revisar("vertical: la del frente en los dos tercios de arriba", enVerticalD.frente == CGRect(x: 1512, y: 25, width: 1080, height: 1263))
+    r.revisar("vertical: la otra en el tercio de abajo, sin hueco", enVerticalD.otra == CGRect(x: 1512, y: 1288, width: 1080, height: 632))
+    let mitades = G.disposicion(paso: 1, en: conVertical[1].visible)
+    r.revisar("vertical, otra vez: mitad y mitad", mitades.frente.height == 948 && mitades.otra.height == 947)
+    let enPortatil = G.disposicion(paso: 0, en: pantallas[0].visible)
+    print("    portátil  frente \(t(enPortatil.frente))   otra \(t(enPortatil.otra))")
+    r.revisar("horizontal: lado a lado, dos tercios a la izquierda",
+              enPortatil.frente == CGRect(x: 0, y: 37, width: 1008, height: 945) && enPortatil.otra == CGRect(x: 1008, y: 37, width: 504, height: 945))
+    r.revisar("el tercer reparto deja un tercio a la del frente", G.disposicion(paso: 2, en: pantallas[0].visible).frente.width == 504)
 
     print("Pantallas de este Mac (solo lectura)")
     for (i, p) in G.pantallas(NSScreen.screens.map { ($0.frame, $0.visibleFrame) }).enumerated() {

@@ -126,6 +126,8 @@ Los atajos se registran con los cuatro modificadores, así que también funciona
 | Hyper + ← / → | Mandarla a la pantalla de ese lado, a la mitad que da hacia la vertical. Si no hay pantalla, avisa |
 | Hyper + ↩ | Casi maximizar. Al repetir, vuelve al tamaño previo |
 
+**Hyper + D (en cualquier pantalla).** Junta la ventana al frente y la que usaste antes (la siguiente en el orden de pantalla) en la pantalla de la del frente: arriba y abajo en una vertical, lado a lado en una horizontal. La del frente se queda dos tercios; al repetir, mitad y mitad, y luego un tercio. Las dos recuerdan su tamaño previo.
+
 **Cómo usarla.** Con la ventana al frente, pulsa el atajo. Sin la tecla hyper también funciona con ⌃⌥⌘⇧ a mano.
 
 **Cómo funciona.**
