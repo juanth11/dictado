@@ -1699,24 +1699,25 @@ private struct Reproductor: View {
     let musica: Musica
     var fuentes: Fuentes?
 
-    /// Lo que se puede mostrar: Spotify (si tiene canción) y las demás apps que suenan.
+    /// Lo que se puede mostrar: lo que suena en "Ahora suena" (con controles completos) y las demás apps que suenan.
     private var opciones: [(id: String, nombre: String, icono: NSImage?)] {
         var lista: [(String, String, NSImage?)] = []
         if musica.hayPista {
-            let icono = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.spotify.client")
+            let icono = NSWorkspace.shared.urlForApplication(withBundleIdentifier: musica.origen)
                 .map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path), lado: 26) }
-            lista.append(("com.spotify.client", "Spotify", icono))
+            let servicio = fuentes?.sonando.first { $0.id == musica.origen }?.servicio
+            lista.append((musica.origen, servicio ?? musica.nombreOrigen, icono))
         }
-        for f in fuentes?.sonando ?? [] where !f.esSpotify { lista.append((f.id, f.servicio ?? f.nombre, f.icono)) }
+        for f in fuentes?.sonando ?? [] where f.id != musica.origen { lista.append((f.id, f.servicio ?? f.nombre, f.icono)) }
         return lista
     }
 
-    /// Otra app (no Spotify) que se está mostrando: la elegida o, si Spotify no suena, la primera que suena.
+    /// Otra app que suena a la vez y que elegiste en las pestañas (sin "Ahora suena", solo su título y ⏯).
     private var otra: Fuentes.Fuente? {
         guard let fuentes else { return nil }
-        let otras = fuentes.sonando.filter { !$0.esSpotify }
-        if let id = fuentes.elegida { return otras.first { $0.id == id } }
-        return (musica.hayPista && musica.sonando) ? nil : otras.first
+        let otras = fuentes.sonando.filter { $0.id != musica.origen }
+        if let id = fuentes.elegida, id != musica.origen { return otras.first { $0.id == id } }
+        return musica.hayPista ? nil : otras.first
     }
 
     var body: some View {
@@ -1728,7 +1729,7 @@ private struct Reproductor: View {
                 if let otra, let fuentes {
                     FuenteVista(fuente: otra, fuentes: fuentes)
                 } else if musica.hayPista {
-                    spotify
+                    principal
                 } else {
                     vacio
                 }
@@ -1738,7 +1739,7 @@ private struct Reproductor: View {
 
     /// Pestañas pequeñas para pasar de una fuente a otra (Spotify · YouTube · …).
     private func selector(_ fuentes: Fuentes) -> some View {
-        let actual = otra?.id ?? "com.spotify.client"
+        let actual = otra?.id ?? musica.origen
         return HStack(spacing: 4) {
             ForEach(opciones, id: \.id) { o in
                 Button { withAnimation(Halo.cambio) { fuentes.elegida = o.id } } label: {
@@ -1758,13 +1759,19 @@ private struct Reproductor: View {
         }
     }
 
-    private var spotify: some View {
+    /// Lo que suena (Spotify, YouTube en el navegador, Música…): carátula o ícono de la app, título, de dónde, progreso
+    /// (tócalo para saltar) y controles. Sin "siguiente" (un video suelto), ⏮ ⏭ pasan a ser −10 s y +10 s.
+    private var principal: some View {
         VStack(alignment: .leading, spacing: opciones.count > 1 ? 7 : 9) {
             HStack(spacing: 9) {
-                Caratula(imagen: musica.caratula, lado: 50, radio: 12, resplandor: true)
+                Button { musica.irAOrigen() } label: { Caratula(imagen: musica.caratula, lado: 50, radio: 12, resplandor: true) }
+                    .buttonStyle(.plain)
+                    .help("Ir a \(musica.nombreOrigen.isEmpty ? "la app" : musica.nombreOrigen)")
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(musica.titulo).font(.system(size: 14, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
-                    Text(musica.artista).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
+                    // Los títulos de video son largos: dos líneas (las canciones caben en una).
+                    Text(musica.titulo).font(.system(size: musica.esSpotify ? 14 : 13, weight: .semibold)).foregroundStyle(Halo.texto)
+                        .lineLimit(musica.esSpotify ? 1 : 2).fixedSize(horizontal: false, vertical: true)
+                    Text(subtitulo).font(.system(size: 11.5)).foregroundStyle(Halo.texto2).lineLimit(1)
                 }
                 Spacer(minLength: 4)
                 Ecualizador(color: Tono.de(musica.acento).claro, activo: musica.sonando)
@@ -1773,14 +1780,31 @@ private struct Reproductor: View {
             Progreso(musica: musica)
             HStack(spacing: 0) {
                 Spacer()
-                BotonIsla(simbolo: "backward.fill") { musica.anterior() }
+                if musica.tieneSiguiente || !musica.puedeSaltar {
+                    BotonIsla(simbolo: "backward.fill") { musica.anterior() }
+                } else {
+                    BotonIsla(simbolo: "gobackward.10") { musica.avanzar(-10) }
+                }
                 Spacer()
                 BotonIsla(simbolo: musica.sonando ? "pause.fill" : "play.fill", grande: true) { musica.alternar() }
                 Spacer()
-                BotonIsla(simbolo: "forward.fill") { musica.siguiente() }
+                if musica.tieneSiguiente || !musica.puedeSaltar {
+                    BotonIsla(simbolo: "forward.fill") { musica.siguiente() }
+                } else {
+                    BotonIsla(simbolo: "goforward.10") { musica.avanzar(10) }
+                }
                 Spacer()
             }
         }
+    }
+
+    /// "Canal · YouTube" o "Artista · Arc": de dónde suena (en Spotify se sobreentiende).
+    private var subtitulo: String {
+        var partes = [musica.artista].filter { !$0.isEmpty }
+        if !musica.esSpotify && !musica.nombreOrigen.isEmpty {
+            partes.append(fuentes?.sonando.first { $0.id == musica.origen }?.servicio ?? musica.nombreOrigen)
+        }
+        return partes.joined(separator: " · ")
     }
 
     private var vacio: some View {
@@ -1892,13 +1916,15 @@ private struct ListaSalidas: View {
 }
 
 /// Progreso como un deslizador fino: lo escuchado en línea continua, un punto brillante y lo que falta punteado.
-/// Solo se redibuja (1 vez por segundo) mientras la isla está abierta.
+/// Solo se redibuja (1 vez por segundo) mientras la isla está abierta. Si la app que suena lo acepta, tocar o
+/// arrastrar sobre la línea salta a ese punto.
 private struct Progreso: View {
     let musica: Musica
+    @State private var arrastre: Double?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
-            let pos = musica.posicion(en: ctx.date)
+            let pos = arrastre.map { $0 * musica.duracion } ?? musica.posicion(en: ctx.date)
             let fraccion = musica.duracion > 0 ? min(1, pos / musica.duracion) : 0
             HStack(spacing: 8) {
                 Text(Tiempo.reloj(pos))
@@ -1921,6 +1947,17 @@ private struct Progreso: View {
                             .offset(x: x - 4.5)
                     }
                     .frame(height: geo.size.height)
+                    .contentShape(Rectangle().inset(by: -6))
+                    .gesture(DragGesture(minimumDistance: 0)
+                        .onChanged { v in
+                            guard musica.puedeSaltar, musica.duracion > 0, w > 0 else { return }
+                            arrastre = max(0, min(1, v.location.x / w))
+                        }
+                        .onEnded { v in
+                            guard musica.puedeSaltar, musica.duracion > 0, w > 0 else { return }
+                            musica.saltar(a: max(0, min(1, v.location.x / w)) * musica.duracion)
+                            arrastre = nil
+                        })
                 }
                 .frame(height: 8)
                 Text("-" + Tiempo.reloj(max(0, musica.duracion - pos)))

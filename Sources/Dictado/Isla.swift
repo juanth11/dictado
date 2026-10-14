@@ -10,12 +10,16 @@ import SwiftUI
 // todo llega por avisos del sistema (Spotify, Calendario, corriente, audio, cámara). Las notificaciones
 // no pasan por aquí: macOS ya las muestra arriba a la derecha.
 
-// MARK: - Música (Spotify)
+// MARK: - Música (lo que suena en el Mac)
 
-/// Lo que suena en Spotify, por la notificación que Spotify publica en cada cambio. Los controles son las
-/// teclas multimedia (⏯ ⏭ ⏮), que solo necesitan Accesibilidad. La carátula sale del oEmbed público de Spotify.
+/// Lo que suena en el Mac, venga de donde venga: Spotify, un video de YouTube en el navegador, Música, un podcast.
+/// Dos fuentes: el "Ahora suena" del sistema (AhoraSuenaSistema.swift: título, posición y qué controles acepta la app) y,
+/// para Spotify, su propia notificación, que trae la carátula (del oEmbed público de Spotify). Los controles son las
+/// teclas multimedia (⏯ ⏭ ⏮, las recibe la app que suena) y, para saltar a un punto, MediaRemote.
 @MainActor @Observable
 final class Musica {
+    static let spotify = "com.spotify.client"
+
     var sonando = false
     var titulo = ""
     var artista = ""
@@ -24,11 +28,20 @@ final class Musica {
     var actualizada = Date()
     var caratula: NSImage?
     var acento = Color.white  // color medio de la carátula
+    /// La app que suena ("com.spotify.client", "company.thebrowser.Browser") y su nombre ("Spotify", "Arc").
+    var origen = ""
+    var nombreOrigen = ""
+    /// Lo que deja hacer esa app: saltar a un punto (YouTube, Música, Spotify) y pasar a la siguiente o la anterior
+    /// (un video suelto de YouTube no tiene siguiente: ahí van ±10 s).
+    var puedeSaltar = false
+    var tieneSiguiente = true
 
     @ObservationIgnored var alCambiarCancion: (() -> Void)?
     @ObservationIgnored private var pista = ""
+    @ObservationIgnored private var sistema: AhoraSuenaSistema?
 
     var hayPista: Bool { !titulo.isEmpty }
+    var esSpotify: Bool { origen == Self.spotify }
 
     func posicion(en ahora: Date) -> Double {
         sonando ? min(duracion, posicion + ahora.timeIntervalSince(actualizada)) : posicion
@@ -42,17 +55,22 @@ final class Musica {
             nonisolated(unsafe) let info = nota.userInfo ?? [:]
             MainActor.assumeIsolated { self?.aplicar(info) }
         }
+        sistema = AhoraSuenaSistema { [weak self] info in self?.aplicarSistema(info) }
     }
 
+    /// La notificación de Spotify. Si en "Ahora suena" manda otra app (un video que suena), se ignora mientras Spotify
+    /// no esté sonando.
     private func aplicar(_ info: [AnyHashable: Any]) {
         let estado = info["Player State"] as? String ?? ""
+        guard origen.isEmpty || esSpotify || estado == "Playing" else { return }
         if estado == "Stopped" {
-            sonando = false
-            titulo = ""
-            artista = ""
-            caratula = nil
-            pista = ""
+            limpiar()
             return
+        }
+        if !esSpotify {
+            origen = Self.spotify
+            nombreOrigen = "Spotify"
+            tieneSiguiente = true
         }
         sonando = estado == "Playing"
         titulo = info["Name"] as? String ?? titulo
@@ -67,9 +85,85 @@ final class Musica {
         }
     }
 
+    /// "Ahora suena" del sistema. Para Spotify solo aporta la posición exacta y los controles (su notificación trae lo
+    /// demás, con la carátula); para cualquier otra app es la fuente: título, artista, duración, posición y el ícono
+    /// de la app como carátula.
+    private func aplicarSistema(_ info: AhoraSuenaSistema.Info?) {
+        guard let info, let app = info.app, !app.isEmpty else {
+            if !esSpotify { limpiar() }  // nada en "Ahora suena": Spotify avisa lo suyo por su lado
+            return
+        }
+        let comandos = Set(info.comandos ?? [])
+        puedeSaltar = comandos.contains(24)
+        tieneSiguiente = comandos.isEmpty || comandos.contains(4)
+        let ahora = Date()
+        if app == Self.spotify {
+            origen = app
+            nombreOrigen = "Spotify"
+            if titulo.isEmpty { titulo = info.titulo ?? ""; artista = info.artista ?? "" }
+            if let d = info.duracion, d > 0 { duracion = d }
+            posicion = info.posicion(en: ahora)
+            actualizada = ahora
+            return
+        }
+        let nueva = app != origen || (info.titulo ?? "") != titulo
+        origen = app
+        nombreOrigen = info.nombre.flatMap { $0.isEmpty ? nil : $0 } ?? app
+        titulo = info.titulo ?? ""
+        artista = info.artista ?? ""
+        duracion = info.duracion ?? 0
+        sonando = info.sonando ?? ((info.ritmo ?? 0) > 0)
+        posicion = info.posicion(en: ahora)
+        actualizada = ahora
+        if nueva {
+            pista = ""
+            caratula = Self.icono(app)
+            acento = caratula.map(Self.colorMedio) ?? .white
+            if sonando { alCambiarCancion?() }
+        }
+    }
+
+    private func limpiar() {
+        sonando = false
+        titulo = ""
+        artista = ""
+        caratula = nil
+        pista = ""
+        origen = ""
+        nombreOrigen = ""
+        puedeSaltar = false
+        tieneSiguiente = true
+    }
+
+    /// El ícono de la app (hace de carátula cuando la app no da una, como un navegador).
+    private static func icono(_ app: String) -> NSImage? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: app)
+            .map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path), lado: 96) }
+    }
+
     func alternar() {
-        sonando.toggle()  // respuesta inmediata; la notificación de Spotify confirma
+        sonando.toggle()  // respuesta inmediata; la notificación o "Ahora suena" confirman
         Self.teclaMedia(16)
+    }
+
+    /// Salta a ese segundo (si la app que suena lo acepta). La barra se mueve al instante.
+    func saltar(a segundos: Double) {
+        guard puedeSaltar else { return }
+        let s = max(0, duracion > 0 ? min(duracion, segundos) : segundos)
+        posicion = s
+        actualizada = Date()
+        AhoraSuenaSistema.saltar(a: s)
+    }
+
+    func avanzar(_ segundos: Double) { saltar(a: posicion(en: Date()) + segundos) }
+
+    /// Trae al frente la app que suena (el video, la pestaña, Spotify).
+    func irAOrigen() {
+        if let app = NSRunningApplication.runningApplications(withBundleIdentifier: origen).first {
+            app.activate()
+        } else if esSpotify || origen.isEmpty {
+            abrirSpotify()
+        }
     }
 
     func siguiente() { Self.teclaMedia(17) }

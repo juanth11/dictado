@@ -339,11 +339,11 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
     enum Escena: String {
         case compacta, abierta, abiertaAgentes, abiertaAgenteAlerta, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento,
              volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso, agenteCaido,
-             agenteDetalle, agenteDetalleAlerta, abiertaFuentes, abiertaVideo, abiertaSalidas
+             agenteDetalle, agenteDetalleAlerta, abiertaFuentes, abiertaVideo, abiertaSalidas, youtube, abiertaYoutube
         case estresAgentes, estresAgenda, estresMac, estresVacia, estresNivel, estresAgente, estresBrillo
         var abierta: Bool {
             [.abierta, .abiertaAgentes, .abiertaAgenteAlerta, .abiertaAgenda, .abiertaMac, .agenteDetalle, .agenteDetalleAlerta,
-             .abiertaFuentes, .abiertaVideo, .abiertaSalidas,
+             .abiertaFuentes, .abiertaVideo, .abiertaSalidas, .abiertaYoutube,
              .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self)
         }
     }
@@ -376,6 +376,9 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
         musica.sonando = true
         musica.caratula = caratula
         musica.acento = Musica.colorMedio(caratula)
+        musica.origen = Musica.spotify
+        musica.nombreOrigen = "Spotify"
+        musica.puedeSaltar = true
         let agenda = Agenda(vivo: false)
         agenda.permitido = true
         let ahora = Date()
@@ -426,6 +429,26 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
                                      titulo: "Lo-fi para concentrarse · 3 horas", servicio: "YouTube")]
             if tipo == .abiertaVideo { fuentes.elegida = "navegador" }
             if tipo == .abiertaSalidas { fuentes.mostrandoSalidas = true }
+        case .youtube, .abiertaYoutube:  // un video de YouTube en el navegador, por "Ahora suena" (sin siguiente: ±10 s)
+            let arc = "company.thebrowser.Browser"
+            let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: arc)
+            let icono = url.map { Privacidad.mapaDeBits(NSWorkspace.shared.icon(forFile: $0.path), lado: 96) }
+            musica.origen = arc
+            musica.nombreOrigen = "Arc"
+            musica.titulo = "Lo-fi para concentrarse · 3 horas"
+            musica.artista = "Lofi Girl"
+            musica.duracion = 10_800
+            musica.posicion = 1_262
+            musica.caratula = icono
+            musica.acento = icono.map(Musica.colorMedio) ?? .white
+            musica.puedeSaltar = true
+            musica.tieneSiguiente = false
+            fuentes.sonando = [.init(id: arc, pid: 0, nombre: "Arc", icono: icono, titulo: musica.titulo, servicio: "YouTube")]
+            agenda.eventos = []
+            if tipo == .abiertaYoutube {
+                estado.expandida = true
+                estado.pestana = .agentes
+            }
         case .abiertaAgentes:
             estado.expandida = true
             estado.pestana = .agentes
