@@ -7,7 +7,7 @@ import SwiftUI
 // finanzas, una noticia, el archivo de metas, una sesión de Claude), piden una lectura fresca o aprueban el inbox.
 
 enum SeccionCentro: String, CaseIterable {
-    case hoy, metas, orquesta, inbox
+    case hoy, metas, orquesta, inbox, notas
 
     var titulo: String {
         switch self {
@@ -15,6 +15,7 @@ enum SeccionCentro: String, CaseIterable {
         case .metas: return "Metas"
         case .orquesta: return "Orquesta"
         case .inbox: return "Inbox"
+        case .notas: return "Notas"
         }
     }
 
@@ -24,6 +25,7 @@ enum SeccionCentro: String, CaseIterable {
         case .metas: return "scope"
         case .orquesta: return "square.stack.3d.up"
         case .inbox: return "tray"
+        case .notas: return "note.text"
         }
     }
 }
@@ -118,6 +120,7 @@ struct EscenaCentro: View {
                 if let m = estado.metas { EscenaMetasCentro(metas: m, ctx: ctx) } else { soloCentro { Vacio(texto: "Aún no hay metas publicadas.") } }
             case .orquesta: EscenaOrquestaCentro(e: estado, ctx: ctx)
             case .inbox: EscenaInboxCentro(e: estado, ctx: ctx)
+            case .notas: EscenaNotasCentro(cerebro: estado.local?.cerebro, ctx: ctx)
             }
         } else {
             soloCentro { Vacio(texto: ctx.cargando ? "Leyendo el estado del día…" : (ctx.error ?? "Sin datos todavía.")) }

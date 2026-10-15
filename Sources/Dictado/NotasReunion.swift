@@ -120,7 +120,7 @@ final class NotasReunion {
         microfono = nil
         sistema = nil
         fase = .procesando
-        avisar?(.aviso(icono: "waveform", texto: "Transcribiendo la reunión en el Mac…"), 4)
+        avisar?(.aviso(icono: "waveform", texto: "Transcribiendo la reunión en el Mac… (unos minutos)"), 900)
         let datos = Datos(titulo: titulo, personas: personas, inicio: inicioReunion ?? Date(),
                           duracion: Date().timeIntervalSince(desde ?? Date()),
                           idioma: UserDefaults.dictado.string(forKey: "idioma") ?? "es-US", vocabulario: Ajustes().vocabulario(),
@@ -131,7 +131,7 @@ final class NotasReunion {
             self.fase = .libre
             self.desde = nil
             self.pistas = nil
-            self.avisar?(.aviso(icono: bien ? "checkmark.circle" : "exclamationmark.triangle", texto: texto), 6)
+            self.avisar?(.aviso(icono: bien ? "checkmark.circle" : "exclamationmark.triangle", texto: bien ? texto + " · Centro → Notas" : texto), 12)
         }
     }
 
