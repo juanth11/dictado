@@ -17,6 +17,8 @@ final class Privacidad {
     @ObservationIgnored var pid: pid_t = 0
 
     var activo: Bool { camara || microfono }
+    /// Otra app empezó (true) o dejó (false) de usar el micrófono.
+    @ObservationIgnored var alCambiarMicrofono: ((Bool) -> Void)?
 
     /// Vuelve a la app de la llamada.
     func irALaApp() {
@@ -92,7 +94,10 @@ final class Privacidad {
             app = otros.lazy.compactMap { Self.appResponsable(de: $0.pid) }.first
         }
         if camara != camaraAhora { camara = camaraAhora }
-        if microfono != microAhora { microfono = microAhora }
+        if microfono != microAhora {
+            microfono = microAhora
+            alCambiarMicrofono?(microAhora)
+        }
         if activo && desde == nil { desde = Date() }
         if !activo { desde = nil }
         pid = app?.processIdentifier ?? 0

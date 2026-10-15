@@ -132,6 +132,19 @@ enum CLI {
         let ajustes = Ajustes()
         let motores = valor("--motor").flatMap(Motor.init(rawValue:)).map { [$0] } ?? Motor.allCases
 
+        // Notas de reunión sin llamada: transcribe dos pistas (tu micrófono y "los demás"), las mezcla por tiempo y
+        // escribe la transcripción junto a la primera (sin mandar nada al cerebro). Borra el audio, como en la app.
+        //   Dictado --notas reunion-tu.m4a [--otros reunion-otros.m4a]
+        if let tu = valor("--notas") {
+            let datos = NotasReunion.Datos(titulo: "Prueba de notas", personas: [], inicio: Date(), duracion: 60,
+                                           idioma: idioma, vocabulario: Ajustes().vocabulario(), acciones: nil)
+            let (aviso, bien) = await NotasReunion.procesar((URL(fileURLWithPath: tu), valor("--otros").map { URL(fileURLWithPath: $0) }), datos)
+            print("\(bien ? "ok" : "falló"): \(aviso)")
+            let md = tu.replacingOccurrences(of: "-tu.m4a", with: ".md")
+            if let texto = try? String(contentsOfFile: md, encoding: .utf8) { print(texto) }
+            return bien ? 0 : 1
+        }
+
         if let ruta = valor("--archivo") {
             for motor in motores {
                 let t0 = Date()

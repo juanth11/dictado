@@ -116,6 +116,33 @@ enum Transcripcion {
         return try await recolector.value
     }
 
+    /// Transcribe un archivo largo (una reunión) con el momento en que empieza cada tramo, para poder mezclar dos pistas
+    /// (tu micrófono y el audio del Mac) en orden. Usa el modelo de frases largas.
+    static func transcribirConTiempos(_ url: URL, idioma: String, vocabulario: [String] = []) async throws -> [(inicio: Double, texto: String)] {
+        guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: idioma)) else {
+            throw DictadoError.idiomaNoSoportado(idioma)
+        }
+        let t = SpeechTranscriber(locale: locale, transcriptionOptions: [], reportingOptions: [], attributeOptions: [])
+        try await asegurarModelo(t)
+        let archivo = try AVAudioFile(forReading: url)
+        let analizador = SpeechAnalyzer(modules: [t])
+        try await analizador.setContext(contexto(vocabulario))
+        let recolector = Task { () -> [(inicio: Double, texto: String)] in
+            var partes: [(inicio: Double, texto: String)] = []
+            for try await r in t.results where r.isFinal {
+                let texto = String(r.text.characters).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !texto.isEmpty { partes.append((r.range.start.seconds, texto)) }
+            }
+            return partes
+        }
+        if let fin = try await analizador.analyzeSequence(from: archivo) {
+            try await analizador.finalizeAndFinish(through: fin)
+        } else {
+            await analizador.cancelAndFinishNow()
+        }
+        return try await recolector.value
+    }
+
     private static func normalizar<S: AsyncSequence>(
         _ secuencia: S, _ convertir: @escaping (S.Element) -> (String, Bool)
     ) -> AsyncThrowingStream<Segmento, Error> {

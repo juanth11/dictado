@@ -227,6 +227,8 @@ final class Agenda {
         let fin: Date
         let color: Color
         var enlace: URL? = nil  // Meet, Zoom, Teams…
+        /// Los invitados (nombre y correo por separado, sin ti): con eso el cerebro busca al cliente o la organización.
+        var personas: [String] = []
 
         /// "Unirse" aparece desde 10 minutos antes y mientras dura la reunión.
         var sePuedeUnir: Bool {
@@ -274,7 +276,18 @@ final class Agenda {
             .prefix(5)
             .map { Evento(id: $0.eventIdentifier ?? UUID().uuidString, titulo: $0.title ?? "Sin título",
                           inicio: $0.startDate, fin: $0.endDate, color: Color(nsColor: $0.calendar.color),
-                          enlace: Reunion.enlace(en: [$0.url?.absoluteString, $0.location, $0.notes])) }
+                          enlace: Reunion.enlace(en: [$0.url?.absoluteString, $0.location, $0.notes]),
+                          personas: Self.personas($0)) }
+    }
+
+    private static func personas(_ e: EKEvent) -> [String] {
+        var lista: [String] = []
+        for p in e.attendees ?? [] where !p.isCurrentUser {
+            if let n = p.name, !n.isEmpty, !n.contains("@") { lista.append(n) }
+            let correo = p.url.absoluteString.replacingOccurrences(of: "mailto:", with: "")
+            if correo.contains("@") { lista.append(correo) }
+        }
+        return Array(lista.prefix(12))
     }
 
     /// Aviso único 5 minutos antes de cada evento.
@@ -396,6 +409,10 @@ final class EstadoIsla {
         case salud(titulo: String, detalle: String, grave: Bool)
         /// Un agente remoto (servidor) avisa de un problema; "Ver" abre su detalle en la pestaña Agentes.
         case agente(nombre: String, alerta: String, caido: Bool)
+        /// Terminó un bloque de foco: ¿quedó hecha?
+        case foco(titulo: String)
+        /// Empezó una llamada: ¿tomo notas?
+        case notas(titulo: String)
     }
 
     /// Pestañas de la isla abierta. nil = la que más importa ahora (ver `Expandida.porDefecto`).
@@ -423,6 +440,8 @@ final class EstadoIsla {
         case .claude: return CGSize(width: w + 2 * 140, height: h + 58)
         case .salud: return CGSize(width: w + 2 * 136, height: h + 50)
         case .agente: return CGSize(width: w + 2 * 140, height: h + 50)
+        case .foco: return CGSize(width: w + 2 * 180, height: h + 58)
+        case .notas: return CGSize(width: w + 2 * 160, height: h + 62)
         case .nivel(let tipo, _, _, _):  // el volumen lleva el arco, un poco más alto
             if tipo == .brillo { return CGSize(width: w + 2 * 92, height: h + 44) }
             let alto: CGFloat = EstiloVolumen.actual == .espectro ? 66 : (EstiloVolumen.actual == .bruma ? 48 : 52)
@@ -440,7 +459,7 @@ final class EstadoIsla {
     var reunionConBoton: Bool {
         switch actividad {
         case .evento(_, _, _, let enlace): return enlace != nil
-        case .claude, .salud, .agente: return true
+        case .claude, .salud, .agente, .foco, .notas: return true
         default: return false
         }
     }
@@ -464,6 +483,9 @@ final class Isla {
     let agentes: AgentesRemotos
     /// Qué suena en el Mac y por dónde (el reproductor de la isla abierta).
     let fuentes = Fuentes()
+    /// El bloque de foco (lo comparte con el Centro y Hyper + F) y las notas de reunión.
+    let foco: Foco
+    let notas: NotasReunion
     private let bateria: Bateria
     private var niveles: Niveles?
     private var caras: [CGDirectDisplayID: Cara] = [:]
@@ -489,13 +511,15 @@ final class Isla {
         init(pantalla: NSScreen) { self.pantalla = pantalla }
     }
 
-    init(hud: EstadoHUD, niveles: Bool, salud: Salud) {
+    init(hud: EstadoHUD, niveles: Bool, salud: Salud, foco: Foco) {
         self.hud = hud
         self.salud = salud
+        self.foco = foco
         musica = Musica()
         agenda = Agenda()
         bateria = Bateria()
         privacidad = Privacidad()
+        notas = NotasReunion(agenda: agenda, privacidad: privacidad)
         claude = SesionesClaude()
         agentes = AgentesRemotos()
         musica.alCambiarCancion = { [weak self] in self?.mostrar(.cancion, segundos: 3.2) }
@@ -517,6 +541,9 @@ final class Isla {
             self?.mostrar(.claude(sesion: s, necesita: false, duracion: duracion), segundos: 6)
         }
         bateria.alConectar = { [weak self] p in self?.mostrar(.carga(porcentaje: p), segundos: 3) }
+        foco.alTerminar = { [weak self] b in self?.mostrar(.foco(titulo: b.titulo), segundos: 30) }
+        notas.avisar = { [weak self] actividad, segundos in self?.mostrar(actividad, segundos: segundos) }
+        privacidad.alCambiarMicrofono = { [weak self] enUso in self?.notas.microfonoCambio(enUso) }
         usarNiveles(niveles)
         escucharPruebas()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -595,7 +622,7 @@ final class Isla {
         sensor.alSalir = { [weak self, weak cara] in if let cara { self?.colapsar(cara) } }
         let vista = VistaPrimerClic(rootView: VistaIsla(estado: cara.estado, musica: musica, agenda: agenda, hud: hud,
                                                         privacidad: privacidad, claude: claude, agentes: agentes, salud: salud.estado,
-                                                        control: self, fuentes: fuentes))
+                                                        control: self, fuentes: fuentes, foco: foco, notas: notas))
         vista.autoresizingMask = [.width, .height]
         sensor.addSubview(vista)
         p.contentView = sensor
@@ -698,6 +725,58 @@ final class Isla {
         expandir(cara)
     }
 
+    // MARK: Foco, preparación y notas
+
+    /// La respuesta al final de un bloque (o al soltarlo antes): hecha, aún no, o cancelado (nil).
+    func responderFoco(_ hecha: Bool?) {
+        foco.cerrar(hecha: hecha)
+        if case .foco = estado.actividad { quitarActividad() }
+        ajustar()
+    }
+
+    func extenderFoco(_ minutos: Int) {
+        foco.extender(minutos)
+        if case .foco = estado.actividad { quitarActividad() }
+        ajustar()
+    }
+
+    /// Hyper + F con un bloque en curso: muestra cómo va (o la pregunta, si ya terminó).
+    func mostrarFoco() {
+        guard let b = foco.activo else { return }
+        if foco.terminado {
+            mostrar(.foco(titulo: b.titulo), segundos: 30)
+        } else {
+            let falta = Int((foco.restante(en: Date()) / 60).rounded(.up))
+            mostrar(.aviso(icono: "timer", texto: "Foco · \(falta) min · \(b.titulo)"), segundos: 3)
+        }
+    }
+
+    /// "Prepárame" de una reunión (aviso o pestaña Agenda): el panel con lo que sabe el cerebro.
+    func preparar(_ evento: Agenda.Evento) {
+        cerrarTodas()
+        quitarActividad()
+        PrepReunion.shared.abrir(evento)
+    }
+
+    /// El aviso de la reunión trae solo título e inicio: se busca el evento completo (con sus invitados).
+    func preparar(titulo: String, inicio: Date) {
+        if let e = agenda.eventos.first(where: { $0.titulo == titulo && abs($0.inicio.timeIntervalSince(inicio)) < 60 }) {
+            preparar(e)
+        }
+    }
+
+    /// La respuesta a "¿tomo notas?".
+    func tomarNotas(_ si: Bool) {
+        if case .notas = estado.actividad { quitarActividad() }
+        if si { notas.empezar() }
+        ajustar()
+    }
+
+    func terminarNotas() {
+        notas.terminar()
+        ajustar()
+    }
+
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {
         if sesion?.id != "prueba" { SesionesClaude.abrir(sesion) }
@@ -758,7 +837,8 @@ final class Isla {
     // MARK: Tamaño y mouse
 
     private func tamanoObjetivo(_ cara: Cara) -> CGSize {
-        cara.estado.tamano(alas: musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad,
+        cara.estado.tamano(alas: musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad
+                               || foco.activo != nil || notas.grabando,
                            punto: privacidad.activo)
     }
 

@@ -21,7 +21,9 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Dictado escucha el micrófono solo mientras mantienes ⌥Espacio presionado.</string>
+	<string>Dictado escucha el micrófono mientras mantienes ⌥Espacio presionado y, solo si lo pides, para tomar notas de una llamada.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Para tomar notas de una llamada, Dictado graba lo que suena en el Mac (la voz de los demás) y lo transcribe en este Mac. Solo cuando tú lo pides.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Dictado muestra tus próximos eventos en la isla del notch.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

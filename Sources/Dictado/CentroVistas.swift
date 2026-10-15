@@ -49,6 +49,11 @@ struct ContextoCentro {
     var cerrar: () -> Void = {}
     var tokensHoy = 0
     var respuestasHoy = 0
+    /// El bloque de foco (Foco.swift): el que corre, lo hecho hoy y cómo empezar uno (título, minutos, vertical).
+    var focoActivo: String?
+    var focoHechas: Set<String> = []
+    var focoMinutosHoy = 0
+    var empezarFoco: (String, Int, String?) -> Void = { _, _, _ in }
 
     var esperando: [SesionesClaude.Sesion] { sesiones.filter { $0.estado == .esperando } }
     var trabajando: [SesionesClaude.Sesion] { sesiones.filter { $0.estado == .trabajando } }
@@ -145,7 +150,7 @@ private struct EscenaHoyCentro: View {
             VentanaEspacio { AgentesHoyCentro(e: e, ctx: ctx) { ir(.inbox) } }
         } centro: {
             if let b = e.brief {
-                VentanaEspacio(relleno: 28) { BriefCentro(b: b) }
+                VentanaEspacio(relleno: 28) { BriefCentro(b: b, ctx: ctx) }
             } else {
                 VentanaEspacio { Vacio(texto: "El brief de hoy todavía no se ha generado: sale a las 5:30 en tu VPS.") }
             }
@@ -323,6 +328,12 @@ private struct LlegoCentro: View {
 /// y lo bueno de saber.
 private struct BriefCentro: View {
     let b: EstadoCentro.Brief
+    let ctx: ContextoCentro
+
+    private func hecha(_ p: EstadoCentro.Brief.Prioridad) -> Bool { p.hecha || ctx.focoHechas.contains(p.texto) }
+    private func minutos(_ p: EstadoCentro.Brief.Prioridad) -> Int { p.minutos.map { max(10, min(90, $0)) } ?? 25 }
+    /// La que sigue: la primera prioridad que no esté hecha.
+    private var siguiente: EstadoCentro.Brief.Prioridad? { b.prioridades.first { !hecha($0) } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -349,6 +360,16 @@ private struct BriefCentro: View {
                     .lineSpacing(2).fixedSize(horizontal: false, vertical: true)
                 Text(b.foco.porque).font(.system(size: 12.5)).foregroundStyle(TextoCentro.secundario)
                     .lineSpacing(3).lineLimit(5).fixedSize(horizontal: false, vertical: true)
+                if let activo = ctx.focoActivo {
+                    Label("En foco: \(activo)", systemImage: "timer").font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Tono.ambar.claro).lineLimit(1).padding(.top, 4)
+                } else if let p = siguiente {
+                    BotonCentro(titulo: "Empezar foco · \(minutos(p)) min", icono: "timer", tipo: .principal) {
+                        ctx.empezarFoco(p.texto, minutos(p), p.vertical)
+                    }
+                    .help("Un bloque para «\(p.texto)». La isla lleva el tiempo y al final te pregunta si quedó hecha (Hyper + F)")
+                    .padding(.top, 4)
+                }
             }
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -357,13 +378,16 @@ private struct BriefCentro: View {
             HStack(alignment: .firstTextBaseline) {
                 Text("Prioridades").font(.system(size: 15, weight: .semibold)).foregroundStyle(Halo.texto)
                 Spacer()
-                Text("\(b.prioridades.filter(\.hecha).count) de \(b.prioridades.count) hechas").font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
+                Text("\(b.prioridades.filter(hecha).count) de \(b.prioridades.count) hechas"
+                     + (ctx.focoMinutosHoy > 0 ? " · \(ctx.focoMinutosHoy) min de foco" : ""))
+                    .font(.system(size: 11)).foregroundStyle(TextoCentro.terciario)
             }
             .padding(.top, 22)
             VStack(spacing: 0) {
                 ForEach(Array(b.prioridades.prefix(3).enumerated()), id: \.offset) { i, p in
                     FiloCentro()
-                    FilaPrioridadCentro(numero: i + 1, p: p)
+                    FilaPrioridadCentro(numero: i + 1, p: p, hecha: hecha(p), enFoco: ctx.focoActivo == p.texto,
+                                        empezar: ctx.focoActivo == nil ? { ctx.empezarFoco(p.texto, minutos(p), p.vertical) } : nil)
                 }
                 FiloCentro()
             }
@@ -588,6 +612,10 @@ private struct SinConfigurar: View {
 private struct FilaPrioridadCentro: View {
     let numero: Int
     let p: EstadoCentro.Brief.Prioridad
+    var hecha = false
+    var enFoco = false
+    /// Empieza un bloque de foco con esta prioridad (nil si ya hay uno corriendo).
+    var empezar: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
@@ -601,10 +629,21 @@ private struct FilaPrioridadCentro: View {
                 }
             }
             Spacer(minLength: 8)
-            Circle().strokeBorder(.white.opacity(p.hecha ? 0 : 0.32), lineWidth: 1)
-                .background { if p.hecha { Circle().fill(.white.opacity(0.9)) } }
+            if hecha {
+                ZStack {
+                    Circle().fill(.white.opacity(0.9))
+                    Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(.black)
+                }
                 .frame(width: 17, height: 17)
                 .padding(.top, 1)
+            } else if enFoco {
+                Label("En foco", systemImage: "timer").font(.system(size: 11, weight: .semibold)).foregroundStyle(Tono.ambar.claro)
+            } else if let empezar {
+                BotonCentro(titulo: "\(p.minutos.map { max(10, min(90, $0)) } ?? 25) min", icono: "timer", accion: empezar)
+                    .help("Empezar un bloque de foco con esta prioridad")
+            } else {
+                Circle().strokeBorder(.white.opacity(0.32), lineWidth: 1).frame(width: 17, height: 17).padding(.top, 1)
+            }
         }
         .padding(.vertical, 11)
     }

@@ -30,8 +30,12 @@ final class Centro: NSObject, NSWindowDelegate {
     /// Solo para la prueba de humo: vidrio simulado, porque el real lo compone el sistema y no sale en una foto.
     private let vidrioSimulado: Bool
 
-    init(claude: SesionesClaude?, vidrioSimulado: Bool = false) {
+    /// El bloque de foco de la app: el Centro empieza bloques desde las prioridades y marca lo que quedó hecho.
+    private let foco: Foco?
+
+    init(claude: SesionesClaude?, foco: Foco? = nil, vidrioSimulado: Bool = false) {
         claudeIsla = claude
+        self.foco = foco
         self.vidrioSimulado = vidrioSimulado
     }
 
@@ -98,7 +102,7 @@ final class Centro: NSObject, NSWindowDelegate {
         v.delegate = self
         let margenes = EdgeInsets(top: marco.maxY - util.maxY, leading: util.minX - marco.minX,
                                   bottom: util.minY - marco.minY, trailing: marco.maxX - util.maxX)
-        let raiz = RaizCentro(store: store, navegacion: navegacion, claude: claudeIsla ?? claudePropio, simulado: vidrioSimulado,
+        let raiz = RaizCentro(store: store, navegacion: navegacion, claude: claudeIsla ?? claudePropio, foco: foco, simulado: vidrioSimulado,
                               fondo: vidrioSimulado ? fondoDeMuestra() : FondoEspacio.deEscritorio(pantalla), margenes: margenes,
                               abrir: { [weak self] destino in self?.abrir(destino: destino) },
                               cerrar: { [weak self] in self?.cerrar() })
@@ -188,6 +192,7 @@ private struct RaizCentro: View {
     let store: CentroStore
     @Bindable var navegacion: Centro.Navegacion
     let claude: SesionesClaude?
+    let foco: Foco?
     let simulado: Bool
     let fondo: NSImage?
     let margenes: EdgeInsets
@@ -207,7 +212,13 @@ private struct RaizCentro: View {
                                      NSPasteboard.general.clearContents()
                                      NSPasteboard.general.setString(texto, forType: .string)
                                  },
-                                 cerrar: cerrar, tokensHoy: claude?.tokensHoy ?? 0, respuestasHoy: claude?.respuestasHoy ?? 0)
+                                 cerrar: cerrar, tokensHoy: claude?.tokensHoy ?? 0, respuestasHoy: claude?.respuestasHoy ?? 0,
+                                 focoActivo: foco?.activo?.titulo, focoHechas: foco?.hechas ?? [], focoMinutosHoy: foco?.minutosHoy ?? 0,
+                                 empezarFoco: { titulo, minutos, vertical in
+                                     // Empezar un bloque es ponerse a trabajar: el espacio se cierra y la isla lleva el tiempo.
+                                     foco?.empezar(titulo, minutos: minutos, vertical: vertical)
+                                     cerrar()
+                                 })
         ZStack {
             FondoEspacio(imagen: fondo)
             // Al abrir, las ventanas llegan desde un poco más lejos (sin movimiento si así lo pides).

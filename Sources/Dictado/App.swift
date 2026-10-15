@@ -44,6 +44,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let itemCentro = NSMenuItem(title: "Centro de mando…", action: #selector(abrirCentro), keyEquivalent: "")
     /// La ventana del centro de mando (CentroVentana.swift): se crea al pedirla por primera vez.
     private var centro: Centro?
+    /// El bloque de foco: lo comparten la isla (anillo y pregunta final), el Centro (empezar desde una prioridad) y
+    /// Hyper + F.
+    private let foco = Foco()
     private var isla: Isla?
     private var diagnostico: Timer?
     private var ultimoEstado = ""
@@ -96,6 +99,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             abrirCaptura: { [weak self] in self?.captura.abrir() },
             abrirSalud: { [weak self] in self?.salud.abrir() },
             alternarCentro: { [weak self] in self?.alternarCentro() },
+            alternarFoco: { [weak self] in self?.alternarFoco() },
             unirseAProxima: { [weak self] in self?.unirseAProxima() },
             registrarPulido: { [weak self] pulir in self?.pulidor = pulir },
             pausarHistorial: { [weak self] si in self?.portapapeles.historial.pausar(si) })
@@ -210,8 +214,21 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func abrirPortapapeles() { portapapeles.abrir() }
     @objc private func abrirSalud() { salud.abrir() }
     @objc private func abrirCentro() {
-        if centro == nil { centro = Centro(claude: isla?.claude) }
+        if centro == nil { centro = Centro(claude: isla?.claude, foco: foco) }
         centro?.abrir()
+    }
+
+    /// Hyper + F: sin bloque, empieza uno con la siguiente prioridad del brief (sus minutos); con uno en curso, muestra
+    /// cómo va (o la pregunta, si ya terminó).
+    private func alternarFoco() {
+        if foco.activo != nil {
+            isla?.mostrarFoco()
+            return
+        }
+        let estado = (try? Data(contentsOf: CentroStore.cache)).flatMap(EstadoCentro.decodificar)
+        let p = Foco.propuesta(estado, hechas: foco.hechas)
+        foco.empezar(p.titulo, minutos: p.minutos, vertical: p.vertical)
+        isla?.mostrar(.aviso(icono: "timer", texto: "Foco · \(p.minutos) min · \(p.titulo)"), segundos: 3)
     }
 
     /// Hyper + A: abre el centro de mando o, si ya está abierto, lo cierra.
@@ -220,7 +237,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func crearIsla() {
-        isla = Isla(hud: hud.estado, niveles: ajustes.niveles, salud: salud)
+        isla = Isla(hud: hud.estado, niveles: ajustes.niveles, salud: salud, foco: foco)
     }
     @objc private func abrirCaptura() { captura.abrir() }
 

@@ -40,8 +40,14 @@ struct VistaIsla: View {
     let control: Isla?
     /// Qué suena y por dónde (el reproductor de la isla abierta); sin ellas, solo Spotify.
     var fuentes: Fuentes?
+    /// El bloque de foco y las notas de reunión (nil en los renders que no los usan).
+    var foco: Foco?
+    var notas: NotasReunion?
 
-    private var alas: Bool { musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad }
+    private var alas: Bool {
+        musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad
+            || foco?.activo != nil || notas?.grabando == true
+    }
 
     var body: some View {
         let tam = estado.tamano(alas: alas, punto: privacidad.activo)
@@ -74,8 +80,10 @@ struct VistaIsla: View {
     @ViewBuilder private var contenido: some View {
         if estado.expandida {
             Expandida(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, agentes: agentes,
-                      salud: salud, fuentes: fuentes, simulado: control == nil,
-                      unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() })
+                      salud: salud, fuentes: fuentes, foco: foco, notas: notas, simulado: control == nil,
+                      unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() },
+                      preparar: { control?.preparar($0) }, responderFoco: { control?.responderFoco($0) },
+                      extenderFoco: { control?.extenderFoco($0) }, terminarNotas: { control?.terminarNotas() })
         } else if let actividad = estado.actividad {
             switch actividad {
             case .dictado:
@@ -89,7 +97,8 @@ struct VistaIsla: View {
             case .cancion:
                 AhoraSuena(estado: estado, musica: musica)
             case .evento(let titulo, let inicio, let color, let enlace):
-                EventoIsla(estado: estado, titulo: titulo, inicio: inicio, color: color, enlace: enlace) { control?.unirse($0) }
+                EventoIsla(estado: estado, titulo: titulo, inicio: inicio, color: color, enlace: enlace,
+                           preparar: { control?.preparar(titulo: titulo, inicio: inicio) }) { control?.unirse($0) }
             case .carga(let porcentaje):
                 CargaIsla(estado: estado, porcentaje: porcentaje)
             case .nivel(let tipo, let valor, let silencio, let salida):
@@ -100,9 +109,14 @@ struct VistaIsla: View {
                 ClaudeIsla(estado: estado, sesion: sesion, necesita: necesita, duracion: duracion) { control?.abrirClaude(sesion) }
             case .agente(let nombre, let alerta, let caido):
                 AgenteIsla(estado: estado, nombre: nombre, alerta: alerta, caido: caido) { control?.verAgente(nombre) }
+            case .foco(let titulo):
+                FocoAvisoIsla(estado: estado, titulo: titulo,
+                              responder: { control?.responderFoco($0) }, extender: { control?.extenderFoco($0) })
+            case .notas(let titulo):
+                NotasOfertaIsla(estado: estado, titulo: titulo) { control?.tomarNotas($0) }
             }
         } else if alas {
-            Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude)
+            Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, foco: foco, notas: notas)
         }
     }
 }
@@ -865,6 +879,8 @@ private struct Compacta: View {
     let agenda: Agenda
     let privacidad: Privacidad
     let claude: SesionesClaude
+    var foco: Foco?
+    var notas: NotasReunion?
 
     var body: some View {
         let punto = privacidad.activo
@@ -876,7 +892,13 @@ private struct Compacta: View {
             Spacer(minLength: estado.notch.width)
             HStack(spacing: 6) {
                 if llamada, let desde = privacidad.desde {
+                    if notas?.grabando == true {  // tomando notas: un punto rojo junto al cronómetro
+                        Circle().fill(Tono.rojo.base).frame(width: 6, height: 6).shadow(color: Tono.rojo.base, radius: 3)
+                            .help("Tomando notas de la llamada")
+                    }
                     Cronometro(desde: desde)  // en llamada manda el cronómetro, como en el iPhone
+                } else if let foco, foco.activo != nil {
+                    MinutosFoco(foco: foco)
                 } else {
                     if claude.hayActividad { IndicadorClaude(claude: claude) }
                     derecha
@@ -895,6 +917,8 @@ private struct Compacta: View {
     @ViewBuilder private var izquierda: some View {
         if privacidad.activo, let icono = privacidad.icono {  // la llamada manda sobre la música
             Image(nsImage: icono).resizable().frame(width: 18, height: 18).modifier(Entrada())
+        } else if let foco, foco.activo != nil {
+            TimelineView(.periodic(from: .now, by: 30)) { ctx in AnilloFoco(fraccion: foco.fraccion(en: ctx.date)) }
         } else if musica.hayPista {
             Caratula(imagen: musica.caratula, lado: 20, radio: 5)
         } else if let evento = agenda.inminente {
@@ -1112,6 +1136,7 @@ private struct EventoIsla: View {
     let inicio: Date
     let color: Color
     let enlace: URL?
+    var preparar: (() -> Void)?
     let unirse: (URL) -> Void
 
     var body: some View {
@@ -1122,6 +1147,7 @@ private struct EventoIsla: View {
             }
             .layoutPriority(1)
             Spacer(minLength: 6)
+            if let preparar { BotonPrep(accion: preparar) }
             TimelineView(.periodic(from: .now, by: 1)) { ctx in
                 let falta = inicio.timeIntervalSince(ctx.date)
                 HStack(spacing: 14) {
@@ -1145,6 +1171,69 @@ private struct EventoIsla: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// "Prepárame": lo que sabe el cerebro de esta reunión, en un panel.
+private struct BotonPrep: View {
+    let accion: () -> Void
+    @State private var encima = false
+
+    var body: some View {
+        Button(action: accion) {
+            Image(systemName: "text.magnifyingglass").font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(encima ? Halo.texto : Halo.texto2)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(.white.opacity(encima ? 0.16 : 0.09)))
+        }
+        .buttonStyle(.plain)
+        .help("Prepárame: lo que sabe tu cerebro de esta reunión")
+        .onHover { encima = $0 }
+    }
+}
+
+/// Terminó un bloque de foco: el anillo lleno en ámbar y la pregunta.
+private struct FocoAvisoIsla: View {
+    let estado: EstadoIsla
+    let titulo: String
+    let responder: (Bool?) -> Void
+    let extender: (Int) -> Void
+
+    var body: some View {
+        Fila(notch: estado.notch, tono: .ambar) {
+            AnilloFoco(fraccion: 1, lado: 30, grosor: 3)
+            VStack(alignment: .leading, spacing: 2) {
+                Rotulo("¿Quedó hecha?", color: Tono.ambar.claro)
+                Text(titulo).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 6)
+            BotonHalo(titulo: "Hecha", icono: "checkmark", alto: 28) { responder(true) }
+            BotonHalo(titulo: "Aún no", secundario: true, alto: 28) { responder(false) }
+            BotonHalo(titulo: "+10", secundario: true, alto: 28) { extender(10) }
+        }
+    }
+}
+
+/// Empezó una llamada: ¿tomo notas? Nunca graba sin tu sí (y conviene avisarles a los demás).
+private struct NotasOfertaIsla: View {
+    let estado: EstadoIsla
+    let titulo: String
+    let responder: (Bool) -> Void
+
+    var body: some View {
+        Fila(notch: estado.notch, tono: .rojo) {
+            Image(systemName: "record.circle").font(.system(size: 22, weight: .light)).foregroundStyle(Tono.rojo.claro)
+            VStack(alignment: .leading, spacing: 2) {
+                Rotulo("¿Tomo notas?", color: Tono.rojo.claro)
+                Text(titulo).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
+                Text("Avísales a los demás que grabas").font(.system(size: 11)).foregroundStyle(Halo.texto2).lineLimit(1)
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 6)
+            BotonHalo(titulo: "Tomar notas", icono: "waveform", alto: 28) { responder(true) }
+            BotonHalo(titulo: "No", secundario: true, alto: 28) { responder(false) }
         }
     }
 }
@@ -1272,19 +1361,26 @@ private struct Expandida: View {
     let agentes: AgentesRemotos
     let salud: EstadoSalud
     let fuentes: Fuentes?
+    var foco: Foco?
+    var notas: NotasReunion?
     /// Render sin app (ImageRenderer no dibuja ScrollView): las listas se cortan abajo en vez de desplazarse.
     var simulado = false
     let unirse: (URL) -> Void
     let abrirSalud: () -> Void
     let medirSalud: () -> Void
+    var preparar: (Agenda.Evento) -> Void = { _ in }
+    var responderFoco: (Bool?) -> Void = { _ in }
+    var extenderFoco: (Int) -> Void = { _ in }
+    var terminarNotas: () -> Void = {}
 
-    /// Sin elegir: lo que más importa ahora (un agente abierto desde su aviso, Claude esperándote o un agente con
-    /// alerta, el Mac en rojo, Claude trabajando, la agenda).
+    /// Sin elegir: Agentes, salvo que haya una reunión en curso o en las próximas dos horas (entonces Agenda). Lo que
+    /// pide tu respuesta (un agente abierto desde su aviso, Claude esperándote, una alerta) va primero. El Mac solo
+    /// si lo eliges: sus problemas ya avisan solos y tiñen su pestaña.
     private var porDefecto: EstadoIsla.Pestana {
         if estado.agenteAbierto != nil || !claude.esperando.isEmpty || agentes.hayAlertas { return .agentes }
-        if salud.diagnostico.gravedad == .mal { return .mac }
-        if claude.hayActividad { return .agentes }
-        return agenda.eventos.isEmpty ? .mac : .agenda
+        let ahora = Date()
+        if agenda.eventos.contains(where: { $0.fin > ahora && $0.inicio.timeIntervalSince(ahora) < 2 * 3600 }) { return .agenda }
+        return .agentes
     }
 
     /// Punto de la pestaña Agentes: naranja si Claude te espera, rojo o ámbar si un agente remoto avisa.
@@ -1338,6 +1434,19 @@ private struct Expandida: View {
         VStack(spacing: 0) {
             HStack {  // el notch físico; a la derecha, quién usa la cámara o el micrófono
                 Spacer()
+                if notas?.grabando == true {
+                    Button(action: terminarNotas) {
+                        HStack(spacing: 5) {
+                            Circle().fill(Tono.rojo.base).frame(width: 6, height: 6).shadow(color: Tono.rojo.base, radius: 3)
+                            Text("Notas · Terminar").font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto)
+                        }
+                        .padding(.horizontal, 8).frame(height: 18)
+                        .background(Capsule().fill(Tono.rojo.base.opacity(0.18)))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Terminar las notas: se transcriben en el Mac y el resumen va a tu inbox")
+                    .padding(.trailing, privacidad.activo ? 8 : 32)
+                }
                 if privacidad.activo {
                     Button { privacidad.irALaApp() } label: {
                         HStack(spacing: 6) {
@@ -1357,9 +1466,15 @@ private struct Expandida: View {
             }
             .frame(height: estado.notch.height)
             HStack(alignment: .top, spacing: 22) {
-                Reproductor(musica: musica, fuentes: fuentes)
-                    .frame(width: 212, alignment: .leading)
-                    .frame(maxHeight: .infinity, alignment: .center)
+                Group {
+                    if let foco, foco.activo != nil {
+                        FocoIsla(foco: foco, responder: responderFoco, extender: extenderFoco)
+                    } else {
+                        Reproductor(musica: musica, fuentes: fuentes)
+                    }
+                }
+                .frame(width: 212, alignment: .leading)
+                .frame(maxHeight: .infinity, alignment: .center)
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(spacing: 4) {
                         PildoraHalo(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
@@ -1381,7 +1496,7 @@ private struct Expandida: View {
                         } else {
                             ListaAgentes(claude: claude, agentes: agentes, simulado: simulado) { estado.agenteAbierto = $0 }
                         }
-                    case .agenda: ListaAgenda(agenda: agenda, unirse: unirse)
+                    case .agenda: ListaAgenda(agenda: agenda, unirse: unirse, preparar: preparar)
                     case .mac: ResumenMac(salud: salud, abrir: abrirSalud)
                     }
                 }
@@ -1994,6 +2109,7 @@ private struct BotonIsla: View {
 private struct ListaAgenda: View {
     let agenda: Agenda
     let unirse: (URL) -> Void
+    var preparar: (Agenda.Evento) -> Void = { _ in }
 
     var body: some View {
         if !agenda.permitido {
@@ -2005,7 +2121,7 @@ private struct ListaAgenda: View {
                 let proxima = agenda.eventos.first { $0.fin > ahora }
                 VStack(alignment: .leading, spacing: 0) {
                     if let proxima {
-                        Protagonista(evento: proxima, ahora: ahora, unirse: unirse)
+                        Protagonista(evento: proxima, ahora: ahora, unirse: unirse) { preparar(proxima) }
                     } else {
                         VStack(alignment: .leading, spacing: 3) {
                             Rotulo("Agenda")
@@ -2026,6 +2142,7 @@ private struct Protagonista: View {
     let evento: Agenda.Evento
     let ahora: Date
     let unirse: (URL) -> Void
+    var preparar: (() -> Void)?
 
     private var cuenta: (rotulo: String, numero: String, unidad: String) {
         let s = evento.inicio.timeIntervalSince(ahora)
@@ -2058,6 +2175,7 @@ private struct Protagonista: View {
                 Text(Tiempo.franja(evento, conEstado: false) + (evento.enlace.flatMap { $0.host }.map { " · " + Tiempo.servicio($0) } ?? "")).font(Halo.detalle).foregroundStyle(Halo.texto2).lineLimit(1)
             }
             Spacer(minLength: 4)
+            if let preparar { BotonPrep(accion: preparar) }
             if evento.sePuedeUnir, let enlace = evento.enlace {
                 BotonUnirse(redondo: true) { unirse(enlace) }  // círculo, como contestar: el título cabe en una línea
             }
