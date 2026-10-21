@@ -169,6 +169,9 @@ final class SesionesClaude {
                                  host: d["hostSessionId"] as? String,
                                  actividad: anterior?.actividad ?? "", resumen: anterior?.resumen ?? ""))
         }
+        // La misma conversación puede estar abierta en dos procesos (la app y una terminal) con el mismo
+        // sessionId: queda una sola fila, la del estado más reciente. Con ids repetidos el diccionario de abajo abortaba.
+        nuevas = Dictionary(nuevas.map { ($0.id, $0) }) { a, b in a.desde >= b.desde ? a : b }.map(\.value)
         // Primero lo que te necesita, luego lo que trabaja, luego lo más reciente.
         nuevas.sort { a, b in
             let pa = a.estado == .esperando ? 0 : (a.estado == .trabajando ? 1 : 2)

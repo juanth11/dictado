@@ -2,13 +2,17 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleIdentifier</key>
-	<string>app.dictado</string>
-	<key>CFBundleName</key>
-	<string>Dictado</string>
 	<key>CFBundleDisplayName</key>
 	<string>Dictado</string>
 	<key>CFBundleExecutable</key>
+	<string>Dictado</string>
+	<key>CFBundleIconFile</key>
+	<string>Dictado</string>
+	<key>CFBundleIconName</key>
+	<string>Dictado</string>
+	<key>CFBundleIdentifier</key>
+	<string>app.dictado</string>
+	<key>CFBundleName</key>
 	<string>Dictado</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
@@ -20,12 +24,12 @@
 	<string>26.0</string>
 	<key>LSUIElement</key>
 	<true/>
-	<key>NSMicrophoneUsageDescription</key>
-	<string>Dictado escucha el micrófono mientras mantienes ⌥Espacio presionado y, solo si lo pides, para tomar notas de una llamada.</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Para tomar notas de una llamada, Dictado graba lo que suena en el Mac (la voz de los demás) y lo transcribe en este Mac. Solo cuando tú lo pides.</string>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Dictado muestra tus próximos eventos en la isla del notch.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictado escucha el micrófono mientras mantienes ⌥Espacio presionado y, solo si lo pides, para tomar notas de una llamada.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Dictado transcribe tu voz en este Mac, sin enviarla a internet.</string>
 </dict>

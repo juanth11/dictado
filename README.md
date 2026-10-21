@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/icono.png" width="128" alt="Ícono de Dictado"></p>
+
 # Dictado
 
 Una sola app nativa de macOS, liviana (unos 40 MB de memoria y 0 % de procesador en reposo), que reemplaza media docena de utilidades. Incluye:
@@ -10,9 +12,17 @@ Una sola app nativa de macOS, liviana (unos 40 MB de memoria y 0 % de procesador
 
 Todo funciona en el Mac, sin cuentas, sin suscripciones y sin mandar tu voz ni tus archivos a ningún servidor.
 
-![La isla abierta: música con la luz de la carátula, la pestaña Agentes (Claude esperándote, con Responder) y la llamada en curso](docs/isla-abierta.jpg)
+![La isla abierta: la música con la luz de la carátula y la pestaña Agentes, con la sesión de Claude que pide permiso y el botón Responder](docs/isla-abierta.jpg)
 
 > **Instalación en un paso:** abre [Claude Code](https://claude.com/claude-code) en esta carpeta y escribe *«instala y configura Dictado»*. Claude sigue las instrucciones de [`CLAUDE.md`](CLAUDE.md), te hace tres preguntas y te guía con los permisos.
+
+## Estado actual (21 de octubre de 2026)
+
+- **Versión 1.0, en uso diario** en macOS 26. Todo lo de la tabla de abajo está en `main` y funciona.
+- **Arreglado hoy:** Dictado se cerraba al abrir cuando la misma conversación de Claude Code estaba abierta en dos procesos a la vez (por ejemplo, en la app de escritorio y en una terminal): las dos sesiones llegaban con el mismo identificador y la app abortaba. Ahora queda una sola fila con el estado más reciente.
+- **Nuevo:** ícono propio en Halo (antes el `.app` salía en blanco). Se dibuja con `swift Recursos/icono.swift` y `instalar.sh` lo copia al `.app`.
+- **En diseño, fuera de `main`:** las maquetas del centro de mando espacial y sus variantes viven en las ramas `diseno/*`; no se instalan.
+- Las fotos de este README salen de los renders de la propia app (`Dictado --vista-isla`, `--vista-agentes`, `--vista-salud`…) con datos de ejemplo.
 
 ---
 
@@ -55,7 +65,7 @@ Toda la app habla un mismo idioma visual, **Halo**: negro de fondo, diales de ma
 
   De Claude se lee `~/.claude` en solo lectura.
 - **Mac:** cuatro diales (procesador, memoria, gráficos y disco) cuyo resplandor sube con la gravedad, el titular del diagnóstico y el ícono ↗ que abre Salud del Mac.
-- **Volumen y brillo:** las teclas del teclado muestran algo en el notch en lugar del cuadro de macOS. El volumen es una línea muy fina con un parlante en cada punta (bajar y subir, como en macOS) sobre la que una bruma de luz llega hasta el nivel, con la cifra encima, el botón del parlante y a dónde va el sonido (por ejemplo, tus AirPods); la punta hacia donde lo mueves se enciende un instante. El brillo es una cuña de rayitas que se enciende hasta el nivel. Al mantener la tecla se mueven sin volver a aparecer; en silencio la bruma se apaga, el botón del parlante se pone rojo y el punto queda en el volumen guardado.
+- **Volumen y brillo:** las teclas del teclado muestran algo en el notch en lugar del cuadro de macOS. El volumen es una línea muy fina con un parlante en cada punta (bajar y subir, como en macOS) sobre la que una bruma de luz llega hasta el nivel, con la cifra encima, el botón del parlante y a dónde va el sonido (por ejemplo, tus AirPods); la punta hacia donde lo mueves se enciende un instante. El brillo es un dial con el sol, «BRILLO · Pantalla» y la cifra fina con luz ámbar. Al mantener la tecla se mueven sin volver a aparecer; en silencio la bruma se apaga, el botón del parlante se pone rojo y el punto queda en el volumen guardado.
 - **Cargador, dictado en vivo y avisos de salud** del Mac.
 
 ### Agentes remotos
@@ -85,6 +95,8 @@ El comando debe imprimir algo así (todo es opcional salvo `estado`):
 - Para probarlo sin abrir la isla: `.build/release/Dictado --agentes` (o `~/Applications/Dictado.app/Contents/MacOS/Dictado --agentes`).
 - Si no configuras ninguno, la pestaña muestra solo las sesiones de Claude Code.
 
+![Avisos de un agente remoto y la pestaña Agentes: la sesión que pide permiso, la lista por prioridad y el día de un agente sobre la regla de medianoche a medianoche](docs/agentes.jpg)
+
 ### Salud del Mac
 
 ![Salud del Mac: Ahora y Limpieza](docs/salud.jpg)
@@ -100,13 +112,15 @@ El comando debe imprimir algo así (todo es opcional salvo `estado`):
   - **Espacio oculto:** te dice, en palabras simples, si hay una actualización de macOS descargada, cuánta memoria de reserva hay en disco y cuánto puede liberar macOS solo.
 - **Avisos en la isla** si el disco baja de 10 GB, la memoria llega al límite, el Mac se calienta, una app pasa 2 minutos al máximo o lo que Dictado dejó en la Papelera ya suma 1 GB con el disco justo.
 
-### Portapapeles, captura y dictado
+### Portapapeles, captura, dictado y acciones sobre texto
 
 ![Portapapeles en vidrio oscuro: el dial cuenta los recortes y la vista previa muestra el texto con sus datos](docs/portapapeles.jpg)
 
 ![Panel de captura](docs/captura.jpg)
 
-![El indicador de dictado en sus tres momentos](docs/dictado.jpg)
+![El indicador de dictado: escuchando, transcribiendo, guardado como idea y copiado al portapapeles](docs/dictado.jpg)
+
+![Acciones sobre texto seleccionado: traducir con Reemplazar y Copiar, y el aviso para descargar los idiomas](docs/acciones.jpg)
 
 ---
 
@@ -195,6 +209,7 @@ Es un paquete de Swift (Swift 6, SwiftUI y AppKit), sin dependencias externas, q
 | `PulidoIA.swift`, `AccionesTexto.swift`, `VistaAcciones.swift`, `IALocal.swift` | Dictado pulido y acciones sobre texto seleccionado con el modelo de Apple en el Mac |
 | `Funciones.swift` | Registro de funciones opcionales, interruptores del menú Funciones y lo que cada módulo puede usar de la app |
 | `MaquetaVerme.swift` | Maqueta (solo render) del espejo de cámara «Verme», no integrada a la app |
+| `Recursos/icono.swift` | Dibuja el ícono en Halo y arma `Recursos/Dictado.icns` (y `docs/icono.png`) |
 | `Pruebas.swift`, `CLI.swift` | Renders de las vistas y diagnósticos (`--salud`, `--claude`, `--agentes`, `--vista-isla salida.png`, `--vista-agentes salida.png`) |
 
 ## Desinstalar
