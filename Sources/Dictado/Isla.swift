@@ -331,12 +331,15 @@ final class Agenda {
         c.type != .birthday && c.type != .subscription && c.allowsContentModifications
     }
 
-    /// El principal de una cuenta: en Google se llama como el correo; en Exchange u Outlook, "Calendario" o "Calendar".
+    /// El principal de una cuenta: en Google se llama como el correo; en Exchange u Outlook, "Calendario" o "Calendar"
+    /// dentro de la cuenta.
     private static func principal(_ c: EKCalendar, de cuentas: Set<String>) -> Bool {
+        guard c.type != .birthday, c.type != .subscription else { return false }
         let cuenta = (c.source?.title ?? "").lowercased()
-        guard cuentas.contains(cuenta), c.type != .birthday, c.type != .subscription else { return false }
         let titulo = c.title.trimmingCharacters(in: .whitespaces).lowercased()
-        return titulo == cuenta || titulo == "calendario" || titulo == "calendar"
+        // Una cuenta de Google agregada desde Ajustes puede llamarse solo "Google": entonces manda el título.
+        if cuentas.contains(titulo) { return true }
+        return cuentas.contains(cuenta) && (titulo == "calendario" || titulo == "calendar")
     }
 
     private func calendariosElegidos() -> [EKCalendar] {
