@@ -123,6 +123,8 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func copiarAvisoNotas() { isla?.copiarAvisoNotas() }
 
+    @objc private func cerrarDia() { isla?.cerrarDia(manual: true) }
+
     @objc private func alternarCalendario(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         isla?.agenda.alternarCalendario(id)
@@ -492,6 +494,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         itemAvisoGrabar.target = self
         itemAvisoGrabar.indentationLevel = 1
         menu.addItem(itemAvisoGrabar)
+        menu.addItem(accion("Cierre del día ahora", #selector(cerrarDia)))
         let itemCalendarios = NSMenuItem(title: "Calendarios de la agenda", action: nil, keyEquivalent: "")
         itemCalendarios.submenu = menuCalendarios
         menu.addItem(itemCalendarios)

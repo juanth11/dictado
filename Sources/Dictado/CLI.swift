@@ -256,6 +256,15 @@ enum CLI {
             if let texto = try? String(contentsOfFile: base + ".md", encoding: .utf8) { print(texto) }
             return bien ? 0 : 1
         }
+        // Tus pendientes de las reuniones como los ve la pestaña Notas (solo lee el inbox).
+        if args.contains("--pendientes") {
+            await MainActor.run {
+                let p = Pendientes(cerebro: valor("--cerebro") ?? Ajustes().carpetaInbox.deletingLastPathComponent().path)
+                print("\(p.abiertos) abiertos · \(p.hechasHoy) hechos hoy · reuniones de hoy: \(p.hoy.map(\.titulo))")
+                for i in p.items { print("  · \(i.texto)" + (i.gatillo.map { " [si: \($0)]" } ?? "") + " — \(i.reunion)") }
+            }
+            return 0
+        }
         if args.contains("--fuentes") {  // qué suena y por dónde (lo que ve el reproductor de la isla)
             await MainActor.run {
                 let f = Fuentes()

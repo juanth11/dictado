@@ -491,10 +491,12 @@ final class EstadoIsla {
         case foco(titulo: String)
         /// Empezó una llamada: ¿tomo notas?
         case notas(titulo: String)
+        /// El cierre del día: quedan pendientes (Mañana, Soltar, Ver).
+        case cierre(quedan: Int)
     }
 
     /// Pestañas de la isla abierta. nil = la que más importa ahora (ver `Expandida.porDefecto`).
-    enum Pestana { case agentes, agenda, mac }
+    enum Pestana { case agentes, agenda, notas, mac }
 
     var expandida = false
     var pestana: Pestana?
@@ -520,6 +522,7 @@ final class EstadoIsla {
         case .agente: return CGSize(width: w + 2 * 140, height: h + 50)
         case .foco: return CGSize(width: w + 2 * 180, height: h + 58)
         case .notas: return CGSize(width: w + 2 * 160, height: h + 62)
+        case .cierre: return CGSize(width: w + 2 * 160, height: h + 62)
         case .nivel(let tipo, _, _, _):  // el volumen lleva el arco, un poco más alto
             if tipo == .brillo { return CGSize(width: w + 2 * 92, height: h + 44) }
             let alto: CGFloat = EstiloVolumen.actual == .espectro ? 66 : (EstiloVolumen.actual == .bruma ? 48 : 52)
@@ -537,7 +540,7 @@ final class EstadoIsla {
     var reunionConBoton: Bool {
         switch actividad {
         case .evento(_, _, _, let enlace): return enlace != nil
-        case .claude, .salud, .agente, .foco, .notas: return true
+        case .claude, .salud, .agente, .foco, .notas, .cierre: return true
         default: return false
         }
     }
@@ -564,6 +567,10 @@ final class Isla {
     /// El bloque de foco (lo comparte con el Centro y Hyper + F) y las notas de reunión.
     let foco: Foco
     let notas: NotasReunion
+    /// Tus pendientes de las reuniones, de a uno (pestaña Notas) y el cierre del día.
+    let pendientes: Pendientes
+    private var relojCierre: Timer?
+    private var archivoCierre: String?
     private let bateria: Bateria
     private var niveles: Niveles?
     private var caras: [CGDirectDisplayID: Cara] = [:]
@@ -598,6 +605,7 @@ final class Isla {
         bateria = Bateria()
         privacidad = Privacidad()
         notas = NotasReunion(agenda: agenda, privacidad: privacidad)
+        pendientes = Pendientes(cerebro: Ajustes().carpetaInbox.deletingLastPathComponent().path)
         claude = SesionesClaude()
         agentes = AgentesRemotos()
         musica.alCambiarCancion = { [weak self] in self?.mostrar(.cancion, segundos: 3.2) }
@@ -623,6 +631,8 @@ final class Isla {
         notas.avisar = { [weak self] actividad, segundos in self?.mostrar(actividad, segundos: segundos) }
         privacidad.alCambiarMicrofono = { [weak self] enUso in self?.notas.microfonoCambio(enUso) }
         agenda.alEmpezar = { [weak self] e in self?.notas.eventoEmpezo(e) }
+        notas.alListo = { [weak self] in self?.pendientes.refrescar() }
+        programarCierre()
         usarNiveles(niveles)
         escucharPruebas()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -815,6 +825,7 @@ final class Isla {
 
     /// La respuesta al final de un bloque (o al soltarlo antes): hecha, aún no, o cancelado (nil).
     func responderFoco(_ hecha: Bool?) {
+        if hecha == true, let t = foco.activo?.titulo { pendientes.focoHecho(t) }
         foco.cerrar(hecha: hecha)
         if case .foco = estado.actividad { quitarActividad() }
         ajustar()
@@ -869,6 +880,57 @@ final class Isla {
     }
 
     func copiarAvisoNotas() { notas.copiarAviso() }
+
+    // MARK: Cierre del día
+
+    /// Todos los días a la hora del ajuste `cierre` ("18:30" por omisión; "no" lo apaga): un solo temporizador hasta
+    /// la próxima, nada en bucle.
+    private func programarCierre() {
+        relojCierre?.invalidate()
+        let ajuste = UserDefaults.dictado.string(forKey: "cierre") ?? "18:30"
+        let partes = ajuste.split(separator: ":").compactMap { Int($0) }
+        guard partes.count == 2 else { return }
+        let cal = Calendar.current
+        var cuando = cal.date(bySettingHour: partes[0], minute: partes[1], second: 0, of: Date()) ?? Date()
+        if cuando <= Date() { cuando = cal.date(byAdding: .day, value: 1, to: cuando) ?? cuando }
+        relojCierre = Timer.scheduledTimer(withTimeInterval: cuando.timeIntervalSinceNow, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.cerrarDia()
+                self?.programarCierre()
+            }
+        }
+    }
+
+    /// Le pide al cerebro el cierre (`accion.sh cierre`: junta las reuniones de hoy en `_inbox/cierre-<fecha>.md`) y
+    /// pregunta qué hacer con lo que quedó. Sin reuniones ni pendientes, no molesta.
+    func cerrarDia(manual: Bool = false) {
+        guard let acciones = CentroStore.acciones else {
+            if manual { mostrar(.aviso(icono: "moon.stars", texto: "El cierre necesita el Centro configurado"), segundos: 4) }
+            return
+        }
+        Task { [weak self] in
+            let (salida, _) = await Task.detached { CentroStore.correr(URL(fileURLWithPath: acciones), ["cierre"], limite: 180) }.value
+            struct R: Decodable { var ok: Bool; var captura: String?; var mensaje: String? }
+            let r = try? JSONDecoder().decode(R.self, from: salida)
+            guard let self else { return }
+            self.pendientes.refrescar()
+            self.archivoCierre = r?.captura.map { Ajustes().carpetaInbox.deletingLastPathComponent().appendingPathComponent($0).path }
+            let quedan = self.pendientes.abiertos
+            if quedan > 0 {
+                self.mostrar(.cierre(quedan: quedan), segundos: 20 * 60)
+            } else if manual {
+                self.mostrar(.aviso(icono: "moon.stars", texto: r?.mensaje ?? (r?.ok == true ? "Cierre listo: nada pendiente" : "El cierre falló")), segundos: 4)
+            }
+        }
+    }
+
+    /// Mañana (true): siguen ahí. Soltar (false): dejan de mostrarse. Ver (nil): abre el resumen.
+    func responderCierre(_ r: Bool?) {
+        if r == false { pendientes.soltarTodos() }
+        if r == nil, let a = archivoCierre { NSWorkspace.shared.open(URL(fileURLWithPath: a)) }
+        if case .cierre = estado.actividad { quitarActividad() }
+        ajustar()
+    }
 
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {

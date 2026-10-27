@@ -340,11 +340,11 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
         case compacta, abierta, abiertaAgentes, abiertaAgenteAlerta, abiertaAgenda, abiertaMac, dictado, privacidad, cancion, evento,
              volumen, brillo, silencio, carga, claudeNecesita, claudeTermino, llamada, saludAviso, agenteAviso, agenteCaido,
              agenteDetalle, agenteDetalleAlerta, abiertaFuentes, abiertaVideo, abiertaSalidas, youtube, abiertaYoutube,
-             foco, abiertaFoco, focoTermino, notasOferta, eventoPrep
+             foco, abiertaFoco, focoTermino, notasOferta, eventoPrep, abiertaNotas, cierre
         case estresAgentes, estresAgenda, estresMac, estresVacia, estresNivel, estresAgente, estresBrillo
         var abierta: Bool {
             [.abierta, .abiertaAgentes, .abiertaAgenteAlerta, .abiertaAgenda, .abiertaMac, .agenteDetalle, .agenteDetalleAlerta,
-             .abiertaFuentes, .abiertaVideo, .abiertaSalidas, .abiertaYoutube, .abiertaFoco,
+             .abiertaFuentes, .abiertaVideo, .abiertaSalidas, .abiertaYoutube, .abiertaFoco, .abiertaNotas,
              .estresAgentes, .estresAgenda, .estresMac, .estresVacia].contains(self)
         }
     }
@@ -442,6 +442,11 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
             estado.actividad = .foco(titulo: "Avanzar FONTUR T3: reunir los datos y el borrador")
         case .notasOferta:
             estado.actividad = .notas(titulo: "Revisión de contrato")
+        case .abiertaNotas:
+            estado.expandida = true
+            estado.pestana = .notas
+        case .cierre:
+            estado.actividad = .cierre(quedan: 3)
         case .eventoPrep:
             estado.actividad = .evento(titulo: "Revisión de contrato", inicio: Date().addingTimeInterval(252),
                                        color: Color(red: 0.35, green: 0.6, blue: 1.0), enlace: URL(string: "https://meet.google.com/abc-defg-hij"))
@@ -578,7 +583,7 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
             UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black).frame(width: 186, height: 32)
             VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud, privacidad: privacidad, claude: claude,
                       agentes: agentes, salud: salud, control: nil, fuentes: fuentes, foco: foco,
-                      notas: NotasReunion(agenda: agenda, privacidad: privacidad, vivo: false))
+                      notas: NotasReunion(agenda: agenda, privacidad: privacidad, vivo: false), pendientes: pendientesDeEjemplo())
                 .frame(width: Isla.expandida.width, height: Isla.expandida.height)
                 .frame(height: alto, alignment: .top)
         }
@@ -799,4 +804,31 @@ func ejemploAgentes(alerta: Bool = false) -> AgentesRemotos {
         ],
         actualizado: ahora)]
     return a
+}
+
+/// Pendientes de ejemplo para los renders: un cerebro de mentira en /tmp con una reunión de hoy.
+@MainActor
+func pendientesDeEjemplo() -> Pendientes {
+    let raiz = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("dictado-cerebro-ejemplo")
+    let inbox = raiz.appendingPathComponent("_inbox")
+    try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+    let f = DateFormatter()
+    f.locale = Locale(identifier: "en_US_POSIX")
+    f.dateFormat = "yyyy-MM-dd'T'HH:mmXXXXX"
+    let nota = """
+    ---
+    date: \(f.string(from: Date().addingTimeInterval(-3600)))
+    reunion: Revisión de contrato
+    ---
+
+    # Notas · Revisión de contrato
+
+    ## Pendientes
+
+    - [ ] Juan · Mandar el borrador del SHA con los cambios de la cláusula 7 · viernes · si: al terminar la llamada con Ana
+    - [ ] Juan · Pedir a Laura el cuadro de obligaciones por sociedad
+    - [ ] Ana · Revisar el anexo
+    """
+    try? nota.write(to: inbox.appendingPathComponent("reunion-revision-de-contrato-ejemplo.md"), atomically: true, encoding: .utf8)
+    return Pendientes(cerebro: raiz.path)
 }

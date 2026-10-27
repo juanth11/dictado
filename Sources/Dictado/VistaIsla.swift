@@ -43,10 +43,12 @@ struct VistaIsla: View {
     /// El bloque de foco y las notas de reunión (nil en los renders que no los usan).
     var foco: Foco?
     var notas: NotasReunion?
+    /// Los pendientes de la pestaña Notas (en la app los da la isla; en los renders, uno de ejemplo).
+    var pendientes: Pendientes?
 
     private var alas: Bool {
         musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad
-            || foco?.activo != nil || notas?.grabando == true
+            || foco?.activo != nil || notas?.grabando == true || notas?.pendiente != nil
     }
 
     var body: some View {
@@ -80,7 +82,8 @@ struct VistaIsla: View {
     @ViewBuilder private var contenido: some View {
         if estado.expandida {
             Expandida(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, agentes: agentes,
-                      salud: salud, fuentes: fuentes, foco: foco, notas: notas, simulado: control == nil,
+                      salud: salud, fuentes: fuentes, foco: foco, notas: notas, pendientes: control?.pendientes ?? pendientes,
+                      simulado: control == nil,
                       unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() },
                       preparar: { control?.preparar($0) }, responderFoco: { control?.responderFoco($0) },
                       extenderFoco: { control?.extenderFoco($0) }, alternarNotas: { control?.alternarNotas() },
@@ -115,6 +118,8 @@ struct VistaIsla: View {
                               responder: { control?.responderFoco($0) }, extender: { control?.extenderFoco($0) })
             case .notas(let titulo):
                 NotasOfertaIsla(estado: estado, titulo: titulo) { control?.responderNotas($0) }
+            case .cierre(let quedan):
+                CierreIsla(estado: estado, quedan: quedan) { control?.responderCierre($0) }
             }
         } else if alas {
             Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, foco: foco, notas: notas)
@@ -1372,6 +1377,7 @@ private struct Expandida: View {
     let fuentes: Fuentes?
     var foco: Foco?
     var notas: NotasReunion?
+    var pendientes: Pendientes?
     /// Render sin app (ImageRenderer no dibuja ScrollView): las listas se cortan abajo en vez de desplazarse.
     var simulado = false
     let unirse: (URL) -> Void
@@ -1388,6 +1394,7 @@ private struct Expandida: View {
     /// si lo eliges: sus problemas ya avisan solos y tiñen su pestaña.
     private var porDefecto: EstadoIsla.Pestana {
         if estado.agenteAbierto != nil || !claude.esperando.isEmpty || agentes.hayAlertas { return .agentes }
+        if notas?.grabando == true { return .notas }
         let ahora = Date()
         if agenda.eventos.contains(where: { $0.fin > ahora && $0.inicio.timeIntervalSince(ahora) < 2 * 3600 }) { return .agenda }
         return .agentes
@@ -1411,6 +1418,8 @@ private struct Expandida: View {
             return nil
         case .agenda:
             return agenda.eventos.first { $0.fin > Date() && $0.inicio.timeIntervalSinceNow < 3600 }.map { Tono.de($0.color) }
+        case .notas:
+            return notas?.grabando == true || notas?.pendiente != nil ? .rojo : nil
         case .mac:
             let g = salud.diagnostico.gravedad
             return g == .bien ? nil : Tono.gravedad(g)
@@ -1426,6 +1435,7 @@ private struct Expandida: View {
             agentes.refrescar()
         case .mac: medirSalud()
         case .agenda: break
+        case .notas: pendientes?.refrescar()
         }
     }
 
@@ -1510,6 +1520,11 @@ private struct Expandida: View {
                         PildoraHalo(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
                                     activa: actual == .agentes) { elegir(.agentes) }
                         PildoraHalo(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { elegir(.agenda) }
+                        if pendientes != nil {
+                            PildoraHalo(titulo: "Notas", cuenta: pendientes?.abiertos ?? 0,
+                                        punto: notas?.grabando == true || notas?.pendiente != nil ? Tono.rojo.base : nil,
+                                        activa: actual == .notas) { elegir(.notas) }
+                        }
                         PildoraHalo(titulo: "Mac", punto: Tono.gravedad(salud.diagnostico.gravedad).base, activa: actual == .mac) {
                             elegir(.mac)
                         }
@@ -1528,6 +1543,10 @@ private struct Expandida: View {
                         }
                     case .agenda: ListaAgenda(agenda: agenda, unirse: unirse, preparar: preparar)
                     case .mac: ResumenMac(salud: salud, abrir: abrirSalud)
+                    case .notas:
+                        if let pendientes {
+                            PestanaNotas(pendientes: pendientes, agenda: agenda, notas: notas, foco: foco, alternarNotas: alternarNotas)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -1549,7 +1568,7 @@ private struct Expandida: View {
             switch estado.pestana ?? porDefecto {
             case .mac: medirSalud()
             case .agentes: agentes.refrescar()
-            case .agenda: break
+            case .agenda, .notas: break
             }
         }
         .onDisappear {
@@ -2408,5 +2427,115 @@ enum Tiempo {
         let estado = !conEstado ? "" : e.inicio <= ahora ? " · en curso"
             : (e.inicio.timeIntervalSince(ahora) < 3600 ? " · \(faltan(e.inicio))" : "")
         return dia + inicio + " – " + fin + estado
+    }
+}
+
+/// Pestaña Notas: arriba "lo siguiente" (una sola cosa, con su "si… entonces" y de qué reunión salió), con Empezar
+/// (un bloque de foco de 25 min), Hecha, Otra y Soltar; abajo las reuniones de hoy (con notas, grabando o sin grabar).
+private struct PestanaNotas: View {
+    let pendientes: Pendientes
+    let agenda: Agenda
+    let notas: NotasReunion?
+    var foco: Foco?
+    let alternarNotas: () -> Void
+
+    /// Las reuniones de hoy del calendario que ya empezaron y no tienen notas (ni se están grabando).
+    private var sinGrabar: [Agenda.Evento] {
+        let ahora = Date()
+        return agenda.eventos.filter { e in
+            e.esReunion && e.inicio <= ahora && Calendar.current.isDateInToday(e.inicio)
+                && !pendientes.hoy.contains { $0.titulo == e.titulo } && notas?.titulo != e.titulo
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            if let s = pendientes.siguiente {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Rotulo("Lo siguiente", color: Tono.ambar.claro)
+                        if pendientes.abiertos > 1 {
+                            Text("1 de \(pendientes.abiertos)").font(.system(size: 10, weight: .medium)).foregroundStyle(Halo.texto2)
+                        }
+                        Spacer(minLength: 4)
+                        if pendientes.hechasHoy > 0 {
+                            Label("\(pendientes.hechasHoy) hoy", systemImage: "checkmark")
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Tono.verde.claro)
+                                .help("Pendientes que cerraste hoy")
+                        }
+                    }
+                    Text(s.texto).font(.system(size: 13, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(detalle(s)).font(.system(size: 10.5)).foregroundStyle(Halo.texto2).lineLimit(1)
+                }
+                HStack(spacing: 6) {
+                    BotonHalo(titulo: "Empezar", icono: "timer", alto: 24) { foco?.empezar(s.texto, minutos: 25) }
+                        .help("Un bloque de foco de 25 minutos para esto")
+                    BotonHalo(titulo: "Hecha", icono: "checkmark", secundario: true, alto: 24) { pendientes.hecho(s) }
+                    BotonHalo(titulo: "Otra", secundario: true, alto: 24) { pendientes.otra() }
+                    BotonHalo(titulo: "Soltar", secundario: true, alto: 24) { pendientes.soltar(s) }
+                        .help("No hacerlo: deja de mostrarse")
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    Rotulo("Lo siguiente")
+                    Text(pendientes.hechasHoy > 0 ? "Todo al día · \(pendientes.hechasHoy) hechas hoy" : "Nada pendiente de tus reuniones")
+                        .font(.system(size: 15, weight: .thin)).foregroundStyle(Halo.texto)
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 10) {
+                if let notas, notas.grabando {
+                    fila(icono: "record.circle", color: Tono.rojo.claro, notas.titulo)
+                }
+                ForEach(pendientes.hoy.suffix(2)) { r in fila(icono: "checkmark.circle", color: Tono.verde.claro, r.titulo) }
+                if let e = sinGrabar.last, notas?.grabando != true {
+                    Button(action: alternarNotas) { fila(icono: "circle.dashed", color: Halo.texto2, e.titulo + " · Grabar") }
+                        .buttonStyle(.plain)
+                        .help("Esta reunión no tiene notas: grabarla ahora")
+                }
+                if pendientes.hoy.isEmpty && sinGrabar.isEmpty && notas?.grabando != true {
+                    Text("Hoy no hay reuniones con notas").font(.system(size: 10.5)).foregroundStyle(Halo.texto2)
+                }
+            }
+        }
+        .onAppear { pendientes.refrescar() }
+    }
+
+    private func detalle(_ s: Pendientes.Item) -> String {
+        var partes: [String] = []
+        if let g = s.gatillo, !g.isEmpty { partes.append("Si: " + g) } else if let c = s.cuando, !c.isEmpty { partes.append(c) }
+        partes.append("de «\(s.reunion)»")
+        return partes.joined(separator: " · ")
+    }
+
+    private func fila(icono: String, color: Color, _ texto: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: icono).font(.system(size: 10, weight: .semibold)).foregroundStyle(color)
+            Text(texto).font(.system(size: 10.5, weight: .medium)).foregroundStyle(Halo.texto2).lineLimit(1)
+        }
+    }
+}
+
+/// El cierre del día: quedan tantos pendientes; Mañana (siguen ahí), Soltar (dejan de mostrarse) o Ver el resumen.
+private struct CierreIsla: View {
+    let estado: EstadoIsla
+    let quedan: Int
+    let responder: (Bool?) -> Void
+
+    var body: some View {
+        Fila(notch: estado.notch, tono: .ambar) {
+            Image(systemName: "moon.stars").font(.system(size: 20, weight: .light)).foregroundStyle(Tono.ambar.claro)
+            VStack(alignment: .leading, spacing: 2) {
+                Rotulo("Cierre del día", color: Tono.ambar.claro)
+                Text(quedan == 1 ? "Queda 1 pendiente" : "Quedan \(quedan) pendientes").font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
+                Text("El resumen de hoy está en tu inbox").font(.system(size: 11)).foregroundStyle(Halo.texto2).lineLimit(1)
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 6)
+            BotonHalo(titulo: "Mañana", alto: 28) { responder(true) }
+            BotonHalo(titulo: "Soltar", secundario: true, alto: 28) { responder(false) }
+            BotonHalo(titulo: "Ver", secundario: true, alto: 28) { responder(nil) }
+        }
     }
 }

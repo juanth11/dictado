@@ -28,6 +28,8 @@ final class NotasReunion {
 
     /// Para mostrar un aviso en la isla (actividad, segundos).
     @ObservationIgnored var avisar: ((EstadoIsla.Actividad, Double) -> Void)?
+    /// Llegaron notas nuevas al inbox (para refrescar los pendientes).
+    @ObservationIgnored var alListo: (() -> Void)?
 
     @ObservationIgnored private let agenda: Agenda
     @ObservationIgnored private let privacidad: Privacidad
@@ -281,6 +283,7 @@ final class NotasReunion {
             let (texto, bien) = await Self.procesar(base: base, datos)
             guard let self else { return }
             self.procesando -= 1
+            if bien { self.alListo?() }
             self.avisar?(.aviso(icono: bien ? "checkmark.circle" : "exclamationmark.triangle", texto: bien ? texto + " · Centro → Notas" : texto), 12)
         }
     }
