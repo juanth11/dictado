@@ -156,7 +156,15 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             i.indentationLevel = 1
             menuCalendarios.addItem(i)
         }
+        if isla?.agenda.eligioAMano == true {
+            menuCalendarios.addItem(.separator())
+            let i = NSMenuItem(title: "Solo el principal de cada cuenta", action: #selector(usarCuentas), keyEquivalent: "")
+            i.target = self
+            menuCalendarios.addItem(i)
+        }
     }
+
+    @objc private func usarCuentas() { isla?.agenda.usarCuentas() }
 
     private func unirseAProxima() {
         if let isla, isla.unirseAProxima() { return }

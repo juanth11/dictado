@@ -320,6 +320,10 @@ final class Agenda {
     }
 
     private static let claveCalendarios = "calendarios"
+    /// Las cuentas de la agenda (correos, en las preferencias del Mac, nunca en el código). De cada una entra solo su
+    /// calendario principal: así una cuenta que agregues después entra sola, y los calendarios viejos de esas cuentas
+    /// (clases, familia, las copias de otra cuenta) se quedan fuera.
+    private static let claveCuentas = "agenda.cuentas"
 
     /// Por omisión: los calendarios en los que puedes escribir, sin cumpleaños, festivos ni suscripciones ("Encontrado en
     /// Mail" y los festivos de Google son de solo lectura). Al elegir en el menú se guarda la lista exacta.
@@ -327,9 +331,23 @@ final class Agenda {
         c.type != .birthday && c.type != .subscription && c.allowsContentModifications
     }
 
+    /// El principal de una cuenta: en Google se llama como el correo; en Exchange u Outlook, "Calendario" o "Calendar".
+    private static func principal(_ c: EKCalendar, de cuentas: Set<String>) -> Bool {
+        let cuenta = (c.source?.title ?? "").lowercased()
+        guard cuentas.contains(cuenta), c.type != .birthday, c.type != .subscription else { return false }
+        let titulo = c.title.trimmingCharacters(in: .whitespaces).lowercased()
+        return titulo == cuenta || titulo == "calendario" || titulo == "calendar"
+    }
+
     private func calendariosElegidos() -> [EKCalendar] {
         let todos = almacen.calendars(for: .event)
-        guard let ids = UserDefaults.dictado.stringArray(forKey: Self.claveCalendarios) else { return todos.filter(Self.porOmision) }
+        guard let ids = UserDefaults.dictado.stringArray(forKey: Self.claveCalendarios) else {
+            if let cuentas = UserDefaults.dictado.stringArray(forKey: Self.claveCuentas), !cuentas.isEmpty {
+                let set = Set(cuentas.map { $0.lowercased() })
+                return todos.filter { Self.principal($0, de: set) }
+            }
+            return todos.filter(Self.porOmision)
+        }
         let set = Set(ids)
         return todos.filter { set.contains($0.calendarIdentifier) }
     }
@@ -342,6 +360,17 @@ final class Agenda {
             .map { Calendario(id: $0.calendarIdentifier, titulo: $0.title.trimmingCharacters(in: .whitespaces),
                               cuenta: $0.source?.title ?? "", activo: activos.contains($0.calendarIdentifier)) }
             .sorted { ($0.cuenta, $0.titulo) < ($1.cuenta, $1.titulo) }
+    }
+
+    /// Hay cuentas guardadas y elegiste a mano en el menú: el menú ofrece volver a "solo el principal de cada cuenta".
+    var eligioAMano: Bool {
+        UserDefaults.dictado.stringArray(forKey: Self.claveCalendarios) != nil
+            && !(UserDefaults.dictado.stringArray(forKey: Self.claveCuentas) ?? []).isEmpty
+    }
+
+    func usarCuentas() {
+        UserDefaults.dictado.removeObject(forKey: Self.claveCalendarios)
+        refrescar()
     }
 
     func alternarCalendario(_ id: String) {
