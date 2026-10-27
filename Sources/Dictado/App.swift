@@ -57,6 +57,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let itemCaptura = NSMenuItem(title: "Captura  ⌘↩", action: #selector(abrirCaptura), keyEquivalent: "")
     private let itemGrabar = NSMenuItem(title: "Grabar reunión  (Hyper + R)", action: #selector(alternarNotas), keyEquivalent: "")
     private let itemAvisoGrabar = NSMenuItem(title: "Copiar aviso de grabación", action: #selector(copiarAvisoNotas), keyEquivalent: "")
+    private let itemNombreGrabar = NSMenuItem(title: "Ponerle nombre a la grabación…", action: #selector(nombrarGrabacion), keyEquivalent: "")
     private let menuCalendarios = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -122,6 +123,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     @objc private func copiarAvisoNotas() { isla?.copiarAvisoNotas() }
+    @objc private func nombrarGrabacion() { isla?.notas.pedirNombre() }
 
     @objc private func cerrarDia() { isla?.cerrarDia(manual: true) }
 
@@ -502,6 +504,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         itemAvisoGrabar.target = self
         itemAvisoGrabar.indentationLevel = 1
         menu.addItem(itemAvisoGrabar)
+        itemNombreGrabar.target = self
+        itemNombreGrabar.indentationLevel = 1
+        menu.addItem(itemNombreGrabar)
         menu.addItem(accion("Cierre del día ahora", #selector(cerrarDia)))
         let itemCalendarios = NSMenuItem(title: "Calendarios de la agenda", action: nil, keyEquivalent: "")
         itemCalendarios.submenu = menuCalendarios
@@ -561,6 +566,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         itemGrabar.title = grabando ? "Terminar la grabación  (Hyper + R)" : "Grabar reunión  (Hyper + R)"
         itemGrabar.isEnabled = isla != nil
         itemAvisoGrabar.isHidden = !grabando
+        itemNombreGrabar.isHidden = !grabando
         llenarCalendarios()
     }
 

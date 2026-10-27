@@ -1465,6 +1465,17 @@ private struct Expandida: View {
                         .buttonStyle(.plain)
                         .help("Copiar el aviso de grabación para pegarlo en el chat de la reunión")
                         .padding(.trailing, 6)
+                        Button { notas.pedirNombre() } label: {
+                            Image(systemName: notas.origen == .juan ? "pencil.line" : "pencil")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(notas.origen == .juan ? Halo.texto2 : Tono.ambar.base)
+                                .frame(width: 22, height: 18)
+                                .background(Capsule().fill(.white.opacity(0.08)))
+                        }
+                        .buttonStyle(.plain)
+                        .help(notas.origen == .juan ? "Cambiar el nombre: «\(notas.titulo)»"
+                              : "Ponerle nombre (si no, lo pongo según lo que se habló). Ahora: «\(notas.titulo)»")
+                        .padding(.trailing, 6)
                     }
                     Button(action: alternarNotas) {
                         HStack(spacing: 5) {

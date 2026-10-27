@@ -19,6 +19,10 @@ final class NotasReunion {
     private(set) var fase = Fase.libre
     private(set) var desde: Date?
     private(set) var titulo = ""
+    /// De dónde salió el título: lo escribiste tú (manda), es el evento del calendario de esa hora (una pista que el
+    /// cerebro confirma contra lo que se habló) o es de relleno con la hora (el cerebro pone uno según el contenido).
+    enum Origen: String, Codable, Sendable { case juan, calendario, auto }
+    private(set) var origen: Origen = .auto
     /// La pregunta "¿grabo?" sin responder (su título). La isla la vuelve a mostrar si otro aviso la tapa.
     private(set) var pendiente: String?
     /// Grabaciones que se están transcribiendo (no impiden grabar la siguiente).
@@ -151,7 +155,7 @@ final class NotasReunion {
         cerrarPregunta()
         switch r {
         case .grabar:
-            empezar(titulo: t)
+            empezar(titulo: t, origen: evento != nil ? .calendario : .auto)
         case .no:
             if let evento { ignorados.insert(evento) }
         case .luego:
@@ -176,7 +180,37 @@ final class NotasReunion {
 
     /// Hyper + R, el botón de la isla y el menú: graba si no estás grabando; si estás grabando, termina.
     func alternar() {
-        if grabando { terminar() } else { empezar(titulo: pendiente) }
+        if grabando { terminar() } else { empezar(titulo: pendiente, origen: eventoPendiente != nil ? .calendario : .auto) }
+    }
+
+    /// Le pones nombre a la grabación mientras grabas: ese nombre manda y el cerebro no lo cambia.
+    func renombrar(_ nuevo: String) {
+        let limpio = nuevo.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !limpio.isEmpty else { return }
+        titulo = limpio
+        origen = .juan
+        if let base, var ficha = Ficha.leer(base) {
+            ficha.titulo = limpio
+            ficha.origen = .juan
+            try? ficha.guardar(base)
+        }
+    }
+
+    /// Ventana corta para escribir el nombre (el lápiz de la isla y el menú).
+    func pedirNombre() {
+        guard grabando else { return }
+        let alerta = NSAlert()
+        alerta.messageText = "¿Cómo se llama esta grabación?"
+        alerta.informativeText = origen == .juan ? "" : "Si no le pones nombre, lo pongo yo según lo que se habló."
+        let campo = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 24))
+        campo.stringValue = origen == .juan ? titulo : ""
+        campo.placeholderString = "Ej.: Frubits, memo de IVA"
+        alerta.accessoryView = campo
+        alerta.addButton(withTitle: "Guardar")
+        alerta.addButton(withTitle: "Cancelar")
+        alerta.window.initialFirstResponder = campo
+        NSApp.activate()
+        if alerta.runModal() == .alertFirstButtonReturn { renombrar(campo.stringValue) }
     }
 
     func copiarAviso() {
@@ -187,18 +221,23 @@ final class NotasReunion {
     }
 
     /// `prueba`: no le pide las notas al cerebro (para verificar la grabación sin dejar nada en el inbox).
-    func empezar(titulo elegido: String? = nil, prueba: Bool = false) {
+    func empezar(titulo elegido: String? = nil, origen o: Origen = .juan, prueba: Bool = false) {
         guard fase == .libre else { return }
         cerrarPregunta()
         let e = eventoActual
         if let elegido, !elegido.isEmpty {
             titulo = elegido
+            origen = o
         } else if let e {
+            // El evento que hay a esta hora es solo una pista: si la reunión de antes se alargó o hay dos seguidas, se
+            // equivoca. El cerebro lo confirma contra lo que se habló.
             titulo = e.titulo
+            origen = .calendario
         } else {
             let f = DateFormatter()
             f.dateFormat = "HH:mm"
-            titulo = "Reunión de las \(f.string(from: Date()))"
+            titulo = "Grabación de las \(f.string(from: Date()))"
+            origen = .auto
         }
         personas = (e?.titulo == titulo ? e?.personas : nil) ?? []
         inicioReunion = e?.titulo == titulo ? e?.inicio : Date()
@@ -208,7 +247,9 @@ final class NotasReunion {
         porLlamada = privacidad.microfono
         do {
             try FileManager.default.createDirectory(at: Self.carpeta, withIntermediateDirectories: true)
-            try Ficha(titulo: titulo, personas: personas, inicio: inicioReunion ?? ahora, desde: ahora, prueba: prueba).guardar(b)
+            var ficha = Ficha(titulo: titulo, personas: personas, inicio: inicioReunion ?? ahora, desde: ahora, prueba: prueba)
+            ficha.origen = origen
+            try ficha.guardar(b)
             let m = GrabadorMicrofono()
             try m.empezar(base: b + "-tu", desde: ahora)
             microfono = m
@@ -278,7 +319,7 @@ final class NotasReunion {
         avisar?(.aviso(icono: "waveform", texto: "Transcribiendo «\(ficha.titulo)» en el Mac… (unos minutos)"), 6)
         let datos = Datos(titulo: ficha.titulo, personas: ficha.personas, inicio: ficha.inicio, duracion: duracion,
                           idioma: UserDefaults.dictado.string(forKey: "idioma") ?? "es-US", vocabulario: Ajustes().vocabulario(),
-                          acciones: ficha.prueba ? nil : CentroStore.acciones, aviso: ficha.aviso)
+                          acciones: ficha.prueba ? nil : CentroStore.acciones, aviso: ficha.aviso, origen: ficha.origen)
         Task { [weak self] in
             let (texto, bien) = await Self.procesar(base: base, datos)
             guard let self else { return }
@@ -317,6 +358,7 @@ final class NotasReunion {
         var aviso = false
         var prueba = false
         var intentos = 0
+        var origen: Origen = .juan
 
         init(titulo: String, personas: [String], inicio: Date, desde: Date, aviso: Bool = false, prueba: Bool = false) {
             self.titulo = titulo
@@ -336,6 +378,8 @@ final class NotasReunion {
             aviso = try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false
             prueba = try c.decodeIfPresent(Bool.self, forKey: .prueba) ?? false
             intentos = try c.decodeIfPresent(Int.self, forKey: .intentos) ?? 0
+            // Las fichas de antes no lo traían: se tratan como del calendario (el cerebro lo revisa).
+            origen = try c.decodeIfPresent(Origen.self, forKey: .origen) ?? .calendario
         }
 
         func guardar(_ base: String) throws {
@@ -364,6 +408,7 @@ final class NotasReunion {
         let acciones: String?
         /// Copiaste el aviso de grabación (queda anotado en la transcripción).
         var aviso = false
+        var origen: Origen = .juan
     }
 
     /// Una grabación por su base: transcribe los trozos de las dos pistas, guarda `<base>.md`, pide las notas y borra la
@@ -412,13 +457,14 @@ final class NotasReunion {
         guard let acciones = d.acciones else { return ("Transcripción guardada en el Mac (sin script de acciones para el resumen)", true) }
         var argumentos = ["reunion", "--titulo", d.titulo, "--inicio", ISO8601DateFormatter().string(from: d.inicio),
                           "--transcripcion", ruta.path]
+        argumentos += ["--origen-titulo", d.origen.rawValue]
         for p in d.personas { argumentos += ["--persona", p] }
         let (salida, fallo) = CentroStore.correr(URL(fileURLWithPath: acciones), argumentos, limite: 180)
-        struct Respuesta: Decodable { var ok: Bool; var captura: String?; var error: String? }
+        struct Respuesta: Decodable { var ok: Bool; var captura: String?; var titulo: String?; var error: String? }
         guard let r = try? JSONDecoder().decode(Respuesta.self, from: salida) else {
             return ("Transcripción guardada; el cerebro no respondió (\(fallo ?? "sin respuesta"))", false)
         }
-        return r.ok ? ("Notas listas en tu inbox", true) : ("Transcripción guardada; el resumen falló: \(r.error ?? "")", false)
+        return r.ok ? ("Notas listas: «\(r.titulo ?? d.titulo)»", true) : ("Transcripción guardada; el resumen falló: \(r.error ?? "")", false)
     }
 
     /// Las dos pistas en orden de tiempo; los tramos seguidos de la misma persona se juntan.
