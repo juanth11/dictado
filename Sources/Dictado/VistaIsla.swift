@@ -1519,7 +1519,7 @@ private struct Expandida: View {
                     HStack(spacing: 4) {
                         PildoraHalo(titulo: "Agentes", cuenta: claude.sesiones.count + agentes.agentes.count, punto: puntoAgentes,
                                     activa: actual == .agentes) { elegir(.agentes) }
-                        PildoraHalo(titulo: "Agenda", cuenta: agenda.eventos.count, activa: actual == .agenda) { elegir(.agenda) }
+                        PildoraHalo(titulo: "Agenda", cuenta: agenda.eventos.filter(\.esReunion).count, activa: actual == .agenda) { elegir(.agenda) }
                         if pendientes != nil {
                             PildoraHalo(titulo: "Notas", cuenta: pendientes?.abiertos ?? 0,
                                         punto: notas?.grabando == true || notas?.pendiente != nil ? Tono.rojo.base : nil,

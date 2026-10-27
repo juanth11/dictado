@@ -293,7 +293,11 @@ final class NotasReunion {
         let archivos = (try? FileManager.default.contentsOfDirectory(at: Self.carpeta, includingPropertiesForKeys: nil)) ?? []
         for a in archivos where a.pathExtension == "json" {
             let b = a.deletingPathExtension().path
-            guard b != base, let ficha = Ficha.leer(b) else { continue }
+            guard b != base, var ficha = Ficha.leer(b) else { continue }
+            // Tres intentos como mucho: si el audio no se deja leer, se deja quieto (y el archivo, para revisarlo a mano).
+            guard ficha.intentos < 3 else { continue }
+            ficha.intentos += 1
+            try? ficha.guardar(b)
             let trozos = Trozos.de(b + "-tu") + Trozos.de(b + "-otros")
             guard let ultimo = trozos.map(\.desde).max() else {
                 try? FileManager.default.removeItem(at: a)   // no alcanzó a grabar nada
@@ -312,6 +316,27 @@ final class NotasReunion {
         var desde: Date
         var aviso = false
         var prueba = false
+        var intentos = 0
+
+        init(titulo: String, personas: [String], inicio: Date, desde: Date, aviso: Bool = false, prueba: Bool = false) {
+            self.titulo = titulo
+            self.personas = personas
+            self.inicio = inicio
+            self.desde = desde
+            self.aviso = aviso
+            self.prueba = prueba
+        }
+
+        init(from d: Decoder) throws {
+            let c = try d.container(keyedBy: CodingKeys.self)
+            titulo = try c.decode(String.self, forKey: .titulo)
+            personas = try c.decodeIfPresent([String].self, forKey: .personas) ?? []
+            inicio = try c.decode(Date.self, forKey: .inicio)
+            desde = try c.decode(Date.self, forKey: .desde)
+            aviso = try c.decodeIfPresent(Bool.self, forKey: .aviso) ?? false
+            prueba = try c.decodeIfPresent(Bool.self, forKey: .prueba) ?? false
+            intentos = try c.decodeIfPresent(Int.self, forKey: .intentos) ?? 0
+        }
 
         func guardar(_ base: String) throws {
             let c = JSONEncoder()

@@ -296,8 +296,9 @@ final class Agenda {
             vistos[clave] = lista.count
             lista.append(e)
         }
+        // Los bloques de la mañana no deben dejar fuera a las reuniones: hasta 24 eventos (36 horas).
         eventos = lista
-            .prefix(8)
+            .prefix(24)
             .map { Evento(id: $0.eventIdentifier ?? UUID().uuidString, titulo: $0.title ?? "Sin título",
                           inicio: $0.startDate, fin: $0.endDate, color: Color(nsColor: $0.calendar.color),
                           enlace: Reunion.enlace(en: [$0.url?.absoluteString, $0.location, $0.notes]),

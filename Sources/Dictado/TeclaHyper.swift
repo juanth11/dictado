@@ -31,7 +31,7 @@ private let log = Logger(subsystem: "app.dictado", category: "hyper")
 @MainActor
 final class TeclaHyper {
     /// Ids de Carbon reservados para este módulo: 20-29.
-    private enum Atajo: UInt32 { case portapapeles = 20, captura = 21, salud = 22, reunion = 23, centro = 24, foco = 25, notas = 26 }
+    private enum Atajo: UInt32, CaseIterable { case portapapeles = 20, captura = 21, salud = 22, reunion = 23, centro = 24, foco = 25, notas = 26 }
 
     private let contexto: ContextoModulos
     private let tap = TapHyper()
@@ -41,6 +41,11 @@ final class TeclaHyper {
     private var senales: [DispatchSourceSignal] = []
     private var pendiente: DispatchWorkItem?
     private var encendida = false
+    /// Con Entrada segura activa (un campo de contraseña, Terminal con "Entrada de teclado segura", 1Password) macOS no
+    /// deja que el tap vea el teclado: Bloq Mayús llegaría como F18 y nadie la convertiría. Mientras dure, se quita el
+    /// mapeo y Bloq Mayús vuelve a ser la de macOS; al apagarse, hyper vuelve sola.
+    private var vigiaSegura: Timer?
+    private var suspendida = false
 
     init(_ contexto: ContextoModulos) {
         self.contexto = contexto
@@ -91,7 +96,7 @@ final class TeclaHyper {
     private func apagar() {
         guard encendida else { return }
         encendida = false
-        for a in [Atajo.portapapeles, .captura, .salud, .reunion] { Atajos.shared.quitar(id: a.rawValue) }
+        for a in Atajo.allCases { Atajos.shared.quitar(id: a.rawValue) }
         reintento?.invalidate()
         reintento = nil
         desconectar()
@@ -114,11 +119,35 @@ final class TeclaHyper {
             MainActor.assumeIsolated { self?.revisarPermiso() }
         }
         revision?.tolerance = 5
+        vigiaSegura?.invalidate()
+        vigiaSegura = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.revisarEntradaSegura() }
+        }
+        vigiaSegura?.tolerance = 1
+    }
+
+    /// Una consulta barata cada 2 s (sin despertar el disco ni la red): la única forma de saber que empezó la Entrada
+    /// segura, porque con ella activa el tap no recibe nada.
+    private func revisarEntradaSegura() {
+        let segura = IsSecureEventInputEnabled()
+        if segura, !suspendida {
+            suspendida = true
+            log.notice("Entrada segura activa: se quita el mapeo y Bloq Mayús vuelve a ser la de macOS")
+            MapeoHyper.cola.async { MapeoHyper.quitar() }
+        } else if !segura, suspendida {
+            suspendida = false
+            log.notice("Entrada segura apagada: hyper vuelve")
+            tap.reiniciarEstado()
+            MapeoHyper.cola.async { MapeoHyper.aplicar(apagarMayusculas: false) }
+        }
     }
 
     private func desconectar() {
         revision?.invalidate()
         revision = nil
+        vigiaSegura?.invalidate()
+        vigiaSegura = nil
+        suspendida = false
         pendiente?.cancel()
         pendiente = nil
         tap.detener()
@@ -139,9 +168,10 @@ final class TeclaHyper {
 
     /// Vuelve a poner el mapeo tras despertar o conectar un teclado (varias señales seguidas se juntan en una).
     private func reaplicar(en segundos: Double) {
-        guard encendida, tap.activo else { return }
+        guard encendida, tap.activo, !suspendida else { return }
         pendiente?.cancel()
-        let tarea = DispatchWorkItem { MapeoHyper.cola.async { MapeoHyper.aplicar() } }
+        // Sin apagar las mayúsculas: si las prendiste mientras no había mapeo, siguen como las dejaste.
+        let tarea = DispatchWorkItem { MapeoHyper.cola.async { MapeoHyper.aplicar(apagarMayusculas: false) } }
         pendiente = tarea
         DispatchQueue.main.asyncAfter(deadline: .now() + segundos, execute: tarea)
     }
@@ -506,7 +536,7 @@ enum MapeoHyper {
 
     /// Pone Bloq Mayús → F18. Se llama de nuevo al despertar o al conectar un teclado (es idempotente).
     @discardableResult
-    static func aplicar() -> Bool {
+    static func aplicar(apagarMayusculas: Bool = true) -> Bool {
         if hayMapeosPorTeclado() {
             log.error("hay mapeos de teclado propios por dispositivo: la tecla hyper no se aplica para no pisarlos")
             return false
@@ -525,7 +555,7 @@ enum MapeoHyper {
         } else {
             ajustes?.removeObject(forKey: "hyper.previo")
         }
-        apagarBloqMayus()
+        if apagarMayusculas { apagarBloqMayus() }
         return true
     }
 
@@ -548,13 +578,12 @@ enum MapeoHyper {
         conBloqueo { conexion in IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), false) }
     }
 
-    /// Bloq Mayús pulsada sola: prende o apaga el bloqueo de mayúsculas (y su luz), como sin hyper.
+    /// Bloq Mayús pulsada sola: prende o apaga el bloqueo de mayúsculas (y su luz), como sin hyper. Lo que manda es lo
+    /// que ve el sistema (las banderas del teclado), no el estado del controlador: si los dos no coinciden (pasa tras
+    /// despertar o con un teclado recién conectado), alternar el del controlador dejaría la tecla "sin hacer nada".
     static func alternarBloqMayus() {
-        conBloqueo { conexion in
-            var prendido = false
-            IOHIDGetModifierLockState(conexion, Int32(kIOHIDCapsLockState), &prendido)
-            IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), !prendido)
-        }
+        let prendido = CGEventSource.flagsState(.hidSystemState).contains(.maskAlphaShift)
+        conBloqueo { conexion in IOHIDSetModifierLockState(conexion, Int32(kIOHIDCapsLockState), !prendido) }
     }
 
     private static func conBloqueo(_ hacer: (io_connect_t) -> Void) {

@@ -3,28 +3,33 @@ import CoreAudio
 import Foundation
 
 // Grabación de una reunión en dos pistas: tu micrófono ("Tú") y lo que suena en el Mac, que en una llamada es la voz
-// de los demás ("Otros"). Cada pista va en trozos AAC de 2 minutos (unos 30 MB por hora entre las dos) que luego se
-// transcriben en el Mac y se borran. Nada sale a la red.
+// de los demás ("Otros"). Cada pista va en trozos de 2 minutos (ver Trozos) que luego se transcriben en el Mac y se
+// borran. Nada sale a la red.
 
-/// Escribe una pista en trozos de 2 minutos (`<base>-<segundo>.m4a`, el segundo desde que empezó la grabación). Si
-/// Dictado se cierra a mitad de una reunión, los trozos cerrados se transcriben al volver a abrirla: se pierde como
-/// mucho el último. Un trozo nuevo también empieza si cambia el formato (conectaste los AirPods).
+/// Escribe una pista en trozos de 2 minutos (`<base>-<segundo>.caf`, el segundo desde que empezó la grabación), en PCM
+/// de 16 kHz mono: lo que usa el reconocedor y lo único que se puede leer si Dictado se cierra a la fuerza (un AAC sin
+/// cerrar queda ilegible; un CAF con PCM se lee hasta el último cuadro escrito, probado con un cierre a la fuerza). Son
+/// unos 115 MB por hora por pista mientras se graba; se borran al transcribir. Al volver a abrir Dictado se transcribe
+/// lo que quedó. Un trozo nuevo también empieza si cambia la entrada (conectaste los AirPods).
 final class Trozos: @unchecked Sendable {
     static let segundos: Double = 120
+    static let formato = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    private static let ajustes: [String: Any] = [AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000.0,
+                                                 AVNumberOfChannelsKey: 1, AVLinearPCMBitDepthKey: 16,
+                                                 AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false]
 
     private let base: String
     private let desde: Date
-    private let tasaBits: Int
     private let candado = NSLock()
     private var archivo: AVAudioFile?
+    private var conversor: AVAudioConverter?
     private var cuadros: AVAudioFramePosition = 0
     private var _total: AVAudioFramePosition = 0
     private var _pico: Float = 0
 
-    init(base: String, desde: Date, tasaBits: Int) {
+    init(base: String, desde: Date) {
         self.base = base
         self.desde = desde
-        self.tasaBits = tasaBits
     }
 
     /// Cuadros escritos y el pico de la señal: si a los pocos segundos siguen en cero, el micrófono no está entrando.
@@ -34,25 +39,38 @@ final class Trozos: @unchecked Sendable {
     func escribir(_ buffer: AVAudioPCMBuffer) {
         candado.lock()
         defer { candado.unlock() }
-        let formato = buffer.format
-        if let a = archivo, cuadros >= AVAudioFramePosition(formato.sampleRate * Self.segundos) || a.processingFormat != formato {
+        if conversor?.inputFormat != buffer.format {
+            conversor = AVAudioConverter(from: buffer.format, to: Self.formato)
+            conversor?.downmix = true
             archivo = nil
         }
+        guard let conversor, buffer.frameLength > 0 else { return }
+        let capacidad = AVAudioFrameCount(Double(buffer.frameLength) * Self.formato.sampleRate / buffer.format.sampleRate) + 64
+        guard let salida = AVAudioPCMBuffer(pcmFormat: Self.formato, frameCapacity: capacidad) else { return }
+        var entregado = false
+        var error: NSError?
+        conversor.convert(to: salida, error: &error) { _, estado in
+            if entregado {
+                estado.pointee = .noDataNow
+                return nil
+            }
+            entregado = true
+            estado.pointee = .haveData
+            return buffer
+        }
+        guard error == nil, salida.frameLength > 0 else { return }
+        if cuadros >= AVAudioFramePosition(Self.formato.sampleRate * Self.segundos) { archivo = nil }
         if archivo == nil {
             let segundo = max(0, Int(Date().timeIntervalSince(desde)))
-            let url = URL(fileURLWithPath: base + String(format: "-%06d.m4a", segundo))
-            archivo = try? AVAudioFile(forWriting: url, settings: [AVFormatIDKey: kAudioFormatMPEG4AAC,
-                                                                  AVSampleRateKey: formato.sampleRate,
-                                                                  AVNumberOfChannelsKey: formato.channelCount,
-                                                                  AVEncoderBitRateKey: tasaBits],
-                                       commonFormat: formato.commonFormat, interleaved: formato.isInterleaved)
+            let url = URL(fileURLWithPath: base + String(format: "-%06d.caf", segundo))
+            archivo = try? AVAudioFile(forWriting: url, settings: Self.ajustes, commonFormat: .pcmFormatFloat32, interleaved: false)
             cuadros = 0
         }
-        guard let archivo, (try? archivo.write(from: buffer)) != nil else { return }
-        cuadros += AVAudioFramePosition(buffer.frameLength)
-        _total += AVAudioFramePosition(buffer.frameLength)
-        if _pico < 0.01, let canal = buffer.floatChannelData?[0] {
-            for i in stride(from: 0, to: Int(buffer.frameLength), by: 16) { _pico = max(_pico, abs(canal[i])) }
+        guard let archivo, (try? archivo.write(from: salida)) != nil else { return }
+        cuadros += AVAudioFramePosition(salida.frameLength)
+        _total += AVAudioFramePosition(salida.frameLength)
+        if _pico < 0.01, let canal = salida.floatChannelData?[0] {
+            for i in stride(from: 0, to: Int(salida.frameLength), by: 8) { _pico = max(_pico, abs(canal[i])) }
         }
     }
 
@@ -66,7 +84,7 @@ final class Trozos: @unchecked Sendable {
         let archivos = (try? FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
         return archivos.compactMap { a -> (url: URL, desde: Double)? in
             let nombre = a.lastPathComponent
-            guard nombre.hasPrefix(prefijo), a.pathExtension == "m4a",
+            guard nombre.hasPrefix(prefijo), ["caf", "m4a"].contains(a.pathExtension),
                   let s = Double(nombre.dropFirst(prefijo.count).dropLast(4)) else { return nil }
             return (a, s)
         }
@@ -85,7 +103,7 @@ final class GrabadorMicrofono: @unchecked Sendable {
     var pico: Float { trozos?.pico ?? 0 }
 
     func empezar(base: String, desde: Date) throws {
-        trozos = Trozos(base: base, desde: desde, tasaBits: 48_000)
+        trozos = Trozos(base: base, desde: desde)
         try arrancar()
         observador = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: nil,
                                                             queue: .main) { [weak self] nota in
@@ -177,7 +195,7 @@ final class GrabadorSistema: @unchecked Sendable {
             throw Fallo.coreAudio("agregado", estado)
         }
 
-        let t = Trozos(base: base, desde: desde, tasaBits: 64_000)
+        let t = Trozos(base: base, desde: desde)
         trozos = t
         estado = AudioDeviceCreateIOProcIDWithBlock(&proc, agregado, cola) { _, entrada, _, _, _ in
             guard let buffer = AVAudioPCMBuffer(pcmFormat: formato, bufferListNoCopy: entrada, deallocator: nil) else { return }
