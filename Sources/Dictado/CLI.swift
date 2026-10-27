@@ -1,3 +1,4 @@
+import EventKit
 import AppKit
 import AVFoundation
 import Foundation
@@ -138,9 +139,11 @@ enum CLI {
         if let tu = valor("--notas") {
             let datos = NotasReunion.Datos(titulo: "Prueba de notas", personas: [], inicio: Date(), duracion: 60,
                                            idioma: idioma, vocabulario: Ajustes().vocabulario(), acciones: nil)
-            let (aviso, bien) = await NotasReunion.procesar((URL(fileURLWithPath: tu), valor("--otros").map { URL(fileURLWithPath: $0) }), datos)
-            print("\(bien ? "ok" : "falló"): \(aviso)")
             let md = tu.replacingOccurrences(of: "-tu.m4a", with: ".md")
+            let (aviso, bien) = await NotasReunion.procesar(tu: [(URL(fileURLWithPath: tu), 0)],
+                                                            otros: valor("--otros").map { [(URL(fileURLWithPath: $0), 0)] } ?? [],
+                                                            md: URL(fileURLWithPath: md), datos)
+            print("\(bien ? "ok" : "falló"): \(aviso)")
             if let texto = try? String(contentsOfFile: md, encoding: .utf8) { print(texto) }
             return bien ? 0 : 1
         }
@@ -224,6 +227,35 @@ enum CLI {
         }
 
         // Agentes remotos configurados en el ajuste `agentes`, como los ve la pestaña Agentes.
+        // La agenda como la ve la isla (calendarios elegidos, sin duplicados ni rechazados) y qué cuenta como reunión.
+        if args.contains("--agenda") {
+            guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
+                print("sin acceso a Calendarios para este proceso (corre la app instalada: ~/Applications/Dictado.app/Contents/MacOS/Dictado --agenda)")
+                return 1
+            }
+            let agenda = await MainActor.run { Agenda() }
+            try? await Task.sleep(for: .seconds(2))
+            await MainActor.run {
+                agenda.refrescar()
+                print(agenda.permitido ? "calendarios:" : "sin acceso a Calendarios")
+                for c in agenda.calendarios() { print("  \(c.activo ? "●" : "○") \(c.cuenta) · \(c.titulo)") }
+                print("próximos eventos:")
+                let f = DateFormatter()
+                f.dateFormat = "EEE HH:mm"
+                for e in agenda.eventos { print("  \(f.string(from: e.inicio)) \(e.esReunion ? "reunión" : "bloque ") \(e.titulo)") }
+            }
+            return 0
+        }
+        // Transcribe una grabación por su base (los trozos <base>-tu-NNNNNN.m4a y <base>-otros-NNNNNN.m4a), sin cerebro.
+        //   Dictado --notas-base /ruta/202610261015-reunion
+        if let base = valor("--notas-base") {
+            let datos = NotasReunion.Datos(titulo: "Prueba por trozos", personas: [], inicio: Date(), duracion: 240,
+                                           idioma: idioma, vocabulario: Ajustes().vocabulario(), acciones: nil)
+            let (aviso, bien) = await NotasReunion.procesar(base: base, datos)
+            print("\(bien ? "ok" : "falló"): \(aviso)")
+            if let texto = try? String(contentsOfFile: base + ".md", encoding: .utf8) { print(texto) }
+            return bien ? 0 : 1
+        }
         if args.contains("--fuentes") {  // qué suena y por dónde (lo que ve el reproductor de la isla)
             await MainActor.run {
                 let f = Fuentes()

@@ -577,7 +577,8 @@ func hojaIsla(_ destino: URL, soloAgentes: Bool = false) -> Bool {
             Rectangle().fill(.white.opacity(0.18)).frame(height: 32)  // barra de menú
             UnevenRoundedRectangle(bottomLeadingRadius: 10, bottomTrailingRadius: 10).fill(.black).frame(width: 186, height: 32)
             VistaIsla(estado: estado, musica: musica, agenda: agenda, hud: hud, privacidad: privacidad, claude: claude,
-                      agentes: agentes, salud: salud, control: nil, fuentes: fuentes, foco: foco)
+                      agentes: agentes, salud: salud, control: nil, fuentes: fuentes, foco: foco,
+                      notas: NotasReunion(agenda: agenda, privacidad: privacidad, vivo: false))
                 .frame(width: Isla.expandida.width, height: Isla.expandida.height)
                 .frame(height: alto, alignment: .top)
         }

@@ -55,6 +55,9 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let itemIsla = NSMenuItem(title: "Isla en el notch (Spotify y calendario)", action: #selector(alternarIsla), keyEquivalent: "")
     private let itemNiveles = NSMenuItem(title: "Volumen y brillo en la isla", action: #selector(alternarNiveles), keyEquivalent: "")
     private let itemCaptura = NSMenuItem(title: "Captura  ⌘↩", action: #selector(abrirCaptura), keyEquivalent: "")
+    private let itemGrabar = NSMenuItem(title: "Grabar reunión  (Hyper + R)", action: #selector(alternarNotas), keyEquivalent: "")
+    private let itemAvisoGrabar = NSMenuItem(title: "Copiar aviso de grabación", action: #selector(copiarAvisoNotas), keyEquivalent: "")
+    private let menuCalendarios = NSMenu()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -101,6 +104,7 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
             alternarCentro: { [weak self] in self?.alternarCentro() },
             alternarFoco: { [weak self] in self?.alternarFoco() },
             unirseAProxima: { [weak self] in self?.unirseAProxima() },
+            alternarNotas: { [weak self] in self?.alternarNotas() },
             registrarPulido: { [weak self] pulir in self?.pulidor = pulir },
             pausarHistorial: { [weak self] si in self?.portapapeles.historial.pausar(si) })
         // ↓ módulos
@@ -110,6 +114,46 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         modulos.append(VentanasTeclado(contexto))
         modulos.append(BuscadorVentanas(contexto))
         // ↑ módulos
+    }
+
+    @objc private func alternarNotas() {
+        guard let isla else { return avisar("Grabar reuniones necesita la isla encendida", icono: "record.circle") }
+        isla.alternarNotas()
+    }
+
+    @objc private func copiarAvisoNotas() { isla?.copiarAvisoNotas() }
+
+    @objc private func alternarCalendario(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        isla?.agenda.alternarCalendario(id)
+    }
+
+    /// Calendarios de la agenda: los elegidos son los únicos que se ven en la isla y que preguntan si grabas.
+    private func llenarCalendarios() {
+        menuCalendarios.removeAllItems()
+        let lista = isla?.agenda.calendarios() ?? []
+        if lista.isEmpty {
+            let i = NSMenuItem(title: "Sin acceso a Calendarios", action: nil, keyEquivalent: "")
+            i.isEnabled = false
+            menuCalendarios.addItem(i)
+            return
+        }
+        var cuenta: String?
+        for c in lista {
+            if c.cuenta != cuenta {
+                if cuenta != nil { menuCalendarios.addItem(.separator()) }
+                let t = NSMenuItem(title: c.cuenta, action: nil, keyEquivalent: "")
+                t.isEnabled = false
+                menuCalendarios.addItem(t)
+                cuenta = c.cuenta
+            }
+            let i = NSMenuItem(title: c.titulo.isEmpty ? "Sin nombre" : c.titulo, action: #selector(alternarCalendario(_:)), keyEquivalent: "")
+            i.target = self
+            i.representedObject = c.id
+            i.state = c.activo ? .on : .off
+            i.indentationLevel = 1
+            menuCalendarios.addItem(i)
+        }
     }
 
     private func unirseAProxima() {
@@ -443,6 +487,14 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         itemNiveles.isEnabled = ajustes.isla
         itemNiveles.indentationLevel = 1
         menu.addItem(itemNiveles)
+        itemGrabar.target = self
+        menu.addItem(itemGrabar)
+        itemAvisoGrabar.target = self
+        itemAvisoGrabar.indentationLevel = 1
+        menu.addItem(itemAvisoGrabar)
+        let itemCalendarios = NSMenuItem(title: "Calendarios de la agenda", action: nil, keyEquivalent: "")
+        itemCalendarios.submenu = menuCalendarios
+        menu.addItem(itemCalendarios)
         let itemFunciones = NSMenuItem(title: "Funciones", action: nil, keyEquivalent: "")
         itemFunciones.submenu = menuFunciones
         for f in Funcion.allCases {
@@ -494,6 +546,11 @@ final class App: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menuEstilos?.items.forEach { $0.state = ($0.representedObject as? String) == hud.estado.estilo.rawValue ? .on : .off }
         itemPermiso.isHidden = AXIsProcessTrusted()
         actualizarItemInicio()
+        let grabando = isla?.notas.grabando == true
+        itemGrabar.title = grabando ? "Terminar la grabación  (Hyper + R)" : "Grabar reunión  (Hyper + R)"
+        itemGrabar.isEnabled = isla != nil
+        itemAvisoGrabar.isHidden = !grabando
+        llenarCalendarios()
     }
 
     private func accion(_ titulo: String, _ selector: Selector) -> NSMenuItem {

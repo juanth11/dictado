@@ -31,7 +31,7 @@ private let log = Logger(subsystem: "app.dictado", category: "hyper")
 @MainActor
 final class TeclaHyper {
     /// Ids de Carbon reservados para este módulo: 20-29.
-    private enum Atajo: UInt32 { case portapapeles = 20, captura = 21, salud = 22, reunion = 23, centro = 24, foco = 25 }
+    private enum Atajo: UInt32 { case portapapeles = 20, captura = 21, salud = 22, reunion = 23, centro = 24, foco = 25, notas = 26 }
 
     private let contexto: ContextoModulos
     private let tap = TapHyper()
@@ -184,6 +184,7 @@ final class TeclaHyper {
             (.reunion, kVK_ANSI_U, "U", { [weak self] in self?.contexto.unirseAProxima() }),
             (.centro, kVK_ANSI_A, "A", { [weak self] in self?.contexto.alternarCentro() }),
             (.foco, kVK_ANSI_F, "F", { [weak self] in self?.contexto.alternarFoco() }),
+            (.notas, kVK_ANSI_R, "R", { [weak self] in self?.contexto.alternarNotas() }),
         ]
         var ocupados: [String] = []
         for (id, tecla, nombre, accion) in lista {

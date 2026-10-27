@@ -59,6 +59,8 @@ struct ContextoModulos {
     let alternarFoco: () -> Void
     /// Abre el enlace de la reunión en curso o la próxima (Meet, Zoom, Teams).
     let unirseAProxima: () -> Void
+    /// Graba la reunión en curso (o la termina si ya estás grabando).
+    let alternarNotas: () -> Void
     /// El módulo de pulido registra aquí su transformación: recibe el texto dictado y devuelve el final.
     let registrarPulido: (@escaping @MainActor (String) async -> String) -> Void
     /// Pausa (true) o reanuda (false) el historial del portapapeles mientras un módulo lo usa de paso

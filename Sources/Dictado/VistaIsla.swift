@@ -83,7 +83,8 @@ struct VistaIsla: View {
                       salud: salud, fuentes: fuentes, foco: foco, notas: notas, simulado: control == nil,
                       unirse: { control?.unirse($0) }, abrirSalud: { control?.abrirSalud() }, medirSalud: { control?.medirSalud() },
                       preparar: { control?.preparar($0) }, responderFoco: { control?.responderFoco($0) },
-                      extenderFoco: { control?.extenderFoco($0) }, terminarNotas: { control?.terminarNotas() })
+                      extenderFoco: { control?.extenderFoco($0) }, alternarNotas: { control?.alternarNotas() },
+                      copiarAviso: { control?.copiarAvisoNotas() })
         } else if let actividad = estado.actividad {
             switch actividad {
             case .dictado:
@@ -113,7 +114,7 @@ struct VistaIsla: View {
                 FocoAvisoIsla(estado: estado, titulo: titulo,
                               responder: { control?.responderFoco($0) }, extender: { control?.extenderFoco($0) })
             case .notas(let titulo):
-                NotasOfertaIsla(estado: estado, titulo: titulo) { control?.tomarNotas($0) }
+                NotasOfertaIsla(estado: estado, titulo: titulo) { control?.responderNotas($0) }
             }
         } else if alas {
             Compacta(estado: estado, musica: musica, agenda: agenda, privacidad: privacidad, claude: claude, foco: foco, notas: notas)
@@ -897,6 +898,12 @@ private struct Compacta: View {
                             .help("Tomando notas de la llamada")
                     }
                     Cronometro(desde: desde)  // en llamada manda el cronómetro, como en el iPhone
+                } else if let notas, notas.grabando, let desde = notas.desde {  // grabando sin llamada (presencial)
+                    Circle().fill(Tono.rojo.base).frame(width: 6, height: 6).shadow(color: Tono.rojo.base, radius: 3)
+                    Cronometro(desde: desde)
+                } else if notas?.pendiente != nil {  // la pregunta "¿grabo?" sigue abierta
+                    Image(systemName: "record.circle").font(.system(size: 12, weight: .semibold)).foregroundStyle(Tono.rojo.claro)
+                        .help("¿Grabo la reunión? Hyper + R")
                 } else if let foco, foco.activo != nil {
                     MinutosFoco(foco: foco)
                 } else {
@@ -1216,24 +1223,26 @@ private struct FocoAvisoIsla: View {
     }
 }
 
-/// Empezó una llamada: ¿tomo notas? Nunca graba sin tu sí (y conviene avisarles a los demás).
+/// Empezó una reunión o una llamada: ¿grabo? Nunca graba sin tu sí (y conviene avisarles a los demás). La pregunta se
+/// queda hasta que respondes; "En 3 min" la vuelve a hacer una vez.
 private struct NotasOfertaIsla: View {
     let estado: EstadoIsla
     let titulo: String
-    let responder: (Bool) -> Void
+    let responder: (NotasReunion.Respuesta) -> Void
 
     var body: some View {
         Fila(notch: estado.notch, tono: .rojo) {
             Image(systemName: "record.circle").font(.system(size: 22, weight: .light)).foregroundStyle(Tono.rojo.claro)
             VStack(alignment: .leading, spacing: 2) {
-                Rotulo("¿Tomo notas?", color: Tono.rojo.claro)
+                Rotulo("¿Grabo la reunión?", color: Tono.rojo.claro)
                 Text(titulo).font(Halo.titulo).foregroundStyle(Halo.texto).lineLimit(1)
-                Text("Avísales a los demás que grabas").font(.system(size: 11)).foregroundStyle(Halo.texto2).lineLimit(1)
+                Text("Avísales que grabas · Hyper + R").font(.system(size: 11)).foregroundStyle(Halo.texto2).lineLimit(1)
             }
             .layoutPriority(1)
             Spacer(minLength: 6)
-            BotonHalo(titulo: "Tomar notas", icono: "waveform", alto: 28) { responder(true) }
-            BotonHalo(titulo: "No", secundario: true, alto: 28) { responder(false) }
+            BotonHalo(titulo: "Grabar", icono: "record.circle", alto: 28) { responder(.grabar) }
+            BotonHalo(titulo: "En 3 min", secundario: true, alto: 28) { responder(.luego) }
+            BotonHalo(titulo: "No", secundario: true, alto: 28) { responder(.no) }
         }
     }
 }
@@ -1371,7 +1380,8 @@ private struct Expandida: View {
     var preparar: (Agenda.Evento) -> Void = { _ in }
     var responderFoco: (Bool?) -> Void = { _ in }
     var extenderFoco: (Int) -> Void = { _ in }
-    var terminarNotas: () -> Void = {}
+    var alternarNotas: () -> Void = {}
+    var copiarAviso: () -> Void = {}
 
     /// Sin elegir: Agentes, salvo que haya una reunión en curso o en las próximas dos horas (entonces Agenda). Lo que
     /// pide tu respuesta (un agente abierto desde su aviso, Claude esperándote, una alerta) va primero. El Mac solo
@@ -1434,17 +1444,37 @@ private struct Expandida: View {
         VStack(spacing: 0) {
             HStack {  // el notch físico; a la derecha, quién usa la cámara o el micrófono
                 Spacer()
-                if notas?.grabando == true {
-                    Button(action: terminarNotas) {
-                        HStack(spacing: 5) {
-                            Circle().fill(Tono.rojo.base).frame(width: 6, height: 6).shadow(color: Tono.rojo.base, radius: 3)
-                            Text("Notas · Terminar").font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto)
+                if let notas {  // grabar siempre está a mano: en llamada o en una reunión presencial
+                    if notas.grabando {
+                        Button(action: copiarAviso) {
+                            Image(systemName: notas.avisaste ? "checkmark" : "doc.on.clipboard")
+                                .font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto2)
+                                .frame(width: 22, height: 18)
+                                .background(Capsule().fill(.white.opacity(0.08)))
                         }
-                        .padding(.horizontal, 8).frame(height: 18)
-                        .background(Capsule().fill(Tono.rojo.base.opacity(0.18)))
+                        .buttonStyle(.plain)
+                        .help("Copiar el aviso de grabación para pegarlo en el chat de la reunión")
+                        .padding(.trailing, 6)
+                    }
+                    Button(action: alternarNotas) {
+                        HStack(spacing: 5) {
+                            Circle().fill(Tono.rojo.base).frame(width: 6, height: 6)
+                                .shadow(color: Tono.rojo.base, radius: notas.grabando ? 3 : 0)
+                            if notas.grabando, let desde = notas.desde {
+                                Text("Grabando").font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto)
+                                Cronometro(desde: desde)
+                                Text("· Terminar").font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto)
+                            } else {
+                                Text(notas.pendiente.map { "Grabar · " + ($0.count > 26 ? $0.prefix(25) + "…" : $0) } ?? "Grabar")
+                                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(Halo.texto).lineLimit(1)
+                            }
+                        }
+                        .padding(.horizontal, 8).frame(height: 18).fixedSize()
+                        .background(Capsule().fill(Tono.rojo.base.opacity(notas.grabando || notas.pendiente != nil ? 0.2 : 0.1)))
                     }
                     .buttonStyle(.plain)
-                    .help("Terminar las notas: se transcriben en el Mac y el resumen va a tu inbox")
+                    .help(notas.grabando ? "Terminar: se transcribe en el Mac y el resumen va a tu inbox (Hyper + R)"
+                                         : "Grabar esta reunión, en llamada o presencial (Hyper + R)")
                     .padding(.trailing, privacidad.activo ? 8 : 32)
                 }
                 if privacidad.activo {

@@ -230,6 +230,10 @@ final class Agenda {
         /// Los invitados (nombre y correo por separado, sin ti): con eso el cerebro busca al cliente o la organización.
         var personas: [String] = []
 
+        /// Una reunión de verdad: tiene invitados o enlace. Lo demás (Almuerzo, Ejercicio, una clase sin invitados) es
+        /// un bloque: se ve en la agenda, pero no pregunta si grabas ni le pone su título a una grabación.
+        var esReunion: Bool { enlace != nil || !personas.isEmpty }
+
         /// "Unirse" aparece desde 10 minutos antes y mientras dura la reunión.
         var sePuedeUnir: Bool {
             guard enlace != nil else { return false }
@@ -242,6 +246,9 @@ final class Agenda {
     var permitido = false
 
     @ObservationIgnored var alAvisar: ((Evento) -> Void)?
+    /// Empezó una reunión (con invitados o enlace): las notas preguntan si grabas.
+    @ObservationIgnored var alEmpezar: ((Evento) -> Void)?
+    @ObservationIgnored private var empezados = Set<String>()
     @ObservationIgnored private let almacen = EKEventStore()
     @ObservationIgnored private var relojes: [Timer] = []
     @ObservationIgnored private var avisados = Set<String>()
@@ -269,15 +276,78 @@ final class Agenda {
         guard permitido else { return }
         let ahora = Date()
         let hasta = Calendar.current.date(byAdding: .hour, value: 36, to: ahora) ?? ahora
-        let consulta = almacen.predicateForEvents(withStart: ahora.addingTimeInterval(-6 * 3600), end: hasta, calendars: nil)
-        eventos = almacen.events(matching: consulta)
-            .filter { !$0.isAllDay && $0.endDate > ahora }
-            .sorted { $0.startDate < $1.startDate }
-            .prefix(5)
+        let elegidos = calendariosElegidos()
+        guard !elegidos.isEmpty else {
+            eventos = []
+            return
+        }
+        let consulta = almacen.predicateForEvents(withStart: ahora.addingTimeInterval(-6 * 3600), end: hasta, calendars: elegidos)
+        // El mismo evento llega dos veces si una cuenta tiene suscrito el calendario de otra: se queda uno (el que
+        // tiene invitados o enlace, si alguno los tiene).
+        var vistos: [String: Int] = [:]
+        var lista: [EKEvent] = []
+        for e in almacen.events(matching: consulta).sorted(by: { $0.startDate < $1.startDate })
+        where !e.isAllDay && e.endDate > ahora && e.status != .canceled && !Self.rechazado(e) {
+            let clave = (e.title ?? "").lowercased().trimmingCharacters(in: .whitespaces) + "|" + String(Int(e.startDate.timeIntervalSince1970))
+            if let i = vistos[clave] {
+                if (lista[i].attendees ?? []).isEmpty, !(e.attendees ?? []).isEmpty { lista[i] = e }
+                continue
+            }
+            vistos[clave] = lista.count
+            lista.append(e)
+        }
+        eventos = lista
+            .prefix(8)
             .map { Evento(id: $0.eventIdentifier ?? UUID().uuidString, titulo: $0.title ?? "Sin título",
                           inicio: $0.startDate, fin: $0.endDate, color: Color(nsColor: $0.calendar.color),
                           enlace: Reunion.enlace(en: [$0.url?.absoluteString, $0.location, $0.notes]),
                           personas: Self.personas($0)) }
+    }
+
+    /// Lo rechazaste: no es parte de tu día.
+    private static func rechazado(_ e: EKEvent) -> Bool {
+        (e.attendees ?? []).contains { $0.isCurrentUser && $0.participantStatus == .declined }
+    }
+
+    // MARK: Qué calendarios cuentan
+
+    struct Calendario: Identifiable {
+        let id: String
+        let titulo: String
+        let cuenta: String
+        let activo: Bool
+    }
+
+    private static let claveCalendarios = "calendarios"
+
+    /// Por omisión: los calendarios en los que puedes escribir, sin cumpleaños, festivos ni suscripciones ("Encontrado en
+    /// Mail" y los festivos de Google son de solo lectura). Al elegir en el menú se guarda la lista exacta.
+    private static func porOmision(_ c: EKCalendar) -> Bool {
+        c.type != .birthday && c.type != .subscription && c.allowsContentModifications
+    }
+
+    private func calendariosElegidos() -> [EKCalendar] {
+        let todos = almacen.calendars(for: .event)
+        guard let ids = UserDefaults.dictado.stringArray(forKey: Self.claveCalendarios) else { return todos.filter(Self.porOmision) }
+        let set = Set(ids)
+        return todos.filter { set.contains($0.calendarIdentifier) }
+    }
+
+    /// Todos los calendarios del Mac, con los elegidos marcados (para el menú).
+    func calendarios() -> [Calendario] {
+        guard permitido else { return [] }
+        let activos = Set(calendariosElegidos().map(\.calendarIdentifier))
+        return almacen.calendars(for: .event)
+            .map { Calendario(id: $0.calendarIdentifier, titulo: $0.title.trimmingCharacters(in: .whitespaces),
+                              cuenta: $0.source?.title ?? "", activo: activos.contains($0.calendarIdentifier)) }
+            .sorted { ($0.cuenta, $0.titulo) < ($1.cuenta, $1.titulo) }
+    }
+
+    func alternarCalendario(_ id: String) {
+        var activos = Set(calendariosElegidos().map(\.calendarIdentifier))
+        if activos.contains(id) { activos.remove(id) } else { activos.insert(id) }
+        UserDefaults.dictado.set(Array(activos), forKey: Self.claveCalendarios)
+        refrescar()
     }
 
     private static func personas(_ e: EKEvent) -> [String] {
@@ -298,6 +368,14 @@ final class Agenda {
             if faltan > 0 && faltan <= 5 * 60 {
                 avisados.insert(e.id)
                 alAvisar?(e)
+            }
+        }
+        // Empezó (hace menos de 10 minutos) una reunión: se pregunta una vez por evento.
+        for e in eventos where e.esReunion && !empezados.contains(e.id) {
+            let paso = ahora.timeIntervalSince(e.inicio)
+            if paso >= 0 && paso < 10 * 60 && e.fin > ahora {
+                empezados.insert(e.id)
+                alEmpezar?(e)
             }
         }
     }
@@ -544,6 +622,7 @@ final class Isla {
         foco.alTerminar = { [weak self] b in self?.mostrar(.foco(titulo: b.titulo), segundos: 30) }
         notas.avisar = { [weak self] actividad, segundos in self?.mostrar(actividad, segundos: segundos) }
         privacidad.alCambiarMicrofono = { [weak self] enUso in self?.notas.microfonoCambio(enUso) }
+        agenda.alEmpezar = { [weak self] e in self?.notas.eventoEmpezo(e) }
         usarNiveles(niveles)
         escucharPruebas()
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -678,6 +757,13 @@ final class Isla {
     }
 
     private func quitarActividad() {
+        // La pregunta "¿grabo?" sin responder vuelve cuando se va el aviso que la tapó.
+        if let t = notas.pendiente {
+            if case .notas = estado.actividad {} else {
+                mostrar(.notas(titulo: t), segundos: 30 * 60)
+                return
+            }
+        }
         estado.actividad = nil
         ajustar()
     }
@@ -765,17 +851,24 @@ final class Isla {
         }
     }
 
-    /// La respuesta a "¿tomo notas?".
-    func tomarNotas(_ si: Bool) {
+    /// La respuesta a "¿grabo la reunión?".
+    func responderNotas(_ r: NotasReunion.Respuesta) {
+        notas.responder(r)
         if case .notas = estado.actividad { quitarActividad() }
-        if si { notas.empezar() }
         ajustar()
     }
 
-    func terminarNotas() {
-        notas.terminar()
+    /// Hyper + R, el botón de la isla abierta y el menú: grabar o terminar.
+    func alternarNotas() {
+        if case .notas = estado.actividad, !notas.grabando {
+            responderNotas(.grabar)
+            return
+        }
+        notas.alternar()
         ajustar()
     }
+
+    func copiarAvisoNotas() { notas.copiarAviso() }
 
     /// Abre esa sesión de Claude desde el aviso ("Responder" / "Ver").
     func abrirClaude(_ sesion: SesionesClaude.Sesion?) {
@@ -825,6 +918,16 @@ final class Isla {
                 case "agente":
                     self.mostrar(.agente(nombre: "Prueba de agente", alerta: "informe-diario falló: sin conexión con el correo",
                                          caido: false), segundos: 6)
+                case "reunion":
+                    self.notas.eventoEmpezo(Agenda.Evento(id: "prueba-\(UUID())", titulo: "Prueba de reunión", inicio: Date(),
+                                                          fin: Date().addingTimeInterval(1800), color: .green,
+                                                          personas: ["prueba@ejemplo.com"]))
+                case "grabar-prueba":
+                    self.notas.empezar(titulo: "Prueba de grabación", prueba: true)
+                    self.ajustar()
+                case "terminar":
+                    self.notas.terminar()
+                    self.ajustar()
                 case "privacidad":
                     self.privacidad.microfono = true
                     DispatchQueue.main.asyncAfter(deadline: .now() + 4) { MainActor.assumeIsolated { self.privacidad.revisar() } }
@@ -838,7 +941,7 @@ final class Isla {
 
     private func tamanoObjetivo(_ cara: Cara) -> CGSize {
         cara.estado.tamano(alas: musica.hayPista || agenda.inminente != nil || privacidad.activo || claude.hayActividad
-                               || foco.activo != nil || notas.grabando,
+                               || foco.activo != nil || notas.grabando || notas.pendiente != nil,
                            punto: privacidad.activo)
     }
 
